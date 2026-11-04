@@ -206,7 +206,7 @@ jobs:
                       }
                   });
 
-                  webView.loadUrl("https://balvikasdhankoli341516-boop.github.io/GURKUL-School-app/index.html");
+                  webView.loadUrl("https://balvikasdhankoli341516-boop.github.io/");
               }
 
               @Override
