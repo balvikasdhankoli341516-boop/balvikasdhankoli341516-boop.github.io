@@ -27,7 +27,7 @@ jobs:
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null || true
 
-      - name: Generate Native Android Project with WhatsApp-Style Popup Notifications & Original Logo
+      - name: Generate Native Android Project with 24x7 Foreground Push Service
         run: |
           mkdir -p android-app/app/src/main/java/com/gurukul/dhankoli
           mkdir -p android-app/app/src/main/res/values
@@ -38,7 +38,7 @@ jobs:
             cp index.html android-app/app/src/main/assets/index.html
           fi
 
-          # 100% Original School / Diwali Logo Converter using Python Pillow (Supports JPG, WebP, PNG)
+          # 100% Original School / Diwali Logo Converter (Supports JPG, WebP, PNG)
           pip install --quiet pillow requests
           python3 - << 'PYEOF'
           import os, requests
@@ -48,7 +48,6 @@ jobs:
           out_path = "android-app/app/src/main/res/drawable/ic_launcher.png"
           img = None
 
-          # Check if logo.png exists in current repo first, otherwise download from official link
           for local_candidate in ["logo.png", "Logo.png"]:
               if os.path.exists(local_candidate):
                   try:
@@ -108,8 +107,8 @@ jobs:
                   applicationId "com.gurukul.dhankoli"
                   minSdk 23
                   targetSdk 34
-                  versionCode 7
-                  versionName "7.0"
+                  versionCode 8
+                  versionName "8.0"
               }
               aaptOptions {
                   cruncherEnabled false
@@ -142,13 +141,18 @@ jobs:
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
               <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
               <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
               <uses-permission android:name="android.permission.VIBRATE" />
               <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
               <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
               <uses-permission android:name="android.permission.WAKE_LOCK" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+              <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
               <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+              <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
               <application
                   android:allowBackup="true"
@@ -172,7 +176,8 @@ jobs:
                       android:name=".GurukulPushService"
                       android:enabled="true"
                       android:exported="false"
-                      android:stopWithTask="false" />
+                      android:stopWithTask="false"
+                      android:foregroundServiceType="dataSync" />
 
                   <receiver
                       android:name=".BootReceiver"
@@ -181,31 +186,38 @@ jobs:
                       <intent-filter>
                           <action android:name="android.intent.action.BOOT_COMPLETED" />
                           <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                          <action android:name="com.gurukul.dhankoli.RESTART_PUSH_SERVICE" />
                       </intent-filter>
                   </receiver>
               </application>
           </manifest>
           EOF
 
-          # 1. BootReceiver.java
+          # 1. BootReceiver.java (ऐप बंद होने या फोन रीस्टार्ट होने पर Foreground Service तुरंत चालू करे)
           cat << 'EOF' > android-app/app/src/main/java/com/gurukul/dhankoli/BootReceiver.java
           package com.gurukul.dhankoli;
 
           import android.content.BroadcastReceiver;
           import android.content.Context;
           import android.content.Intent;
+          import android.os.Build;
 
           public class BootReceiver extends BroadcastReceiver {
               @Override
               public void onReceive(Context context, Intent intent) {
                   try {
-                      context.startService(new Intent(context, GurukulPushService.class));
+                      Intent srv = new Intent(context, GurukulPushService.class);
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                          context.startForegroundService(srv);
+                      } else {
+                          context.startService(srv);
+                      }
                   } catch (Exception ignored) {}
               }
           }
           EOF
 
-          # 2. GurukulPushService.java (WhatsApp-Style Heads-Up Banner + Screen Wake + Hardware Vibration)
+          # 2. GurukulPushService.java (24x7 Unkillable Foreground Service + Instant Popup Banner)
           cat << 'EOF' > android-app/app/src/main/java/com/gurukul/dhankoli/GurukulPushService.java
           package com.gurukul.dhankoli;
 
@@ -218,6 +230,7 @@ jobs:
           import android.content.Context;
           import android.content.Intent;
           import android.content.SharedPreferences;
+          import android.content.pm.ServiceInfo;
           import android.graphics.Bitmap;
           import android.graphics.BitmapFactory;
           import android.media.AudioAttributes;
@@ -235,64 +248,122 @@ jobs:
           import java.io.InputStreamReader;
           import java.net.HttpURLConnection;
           import java.net.URL;
-          import java.util.HashSet;
           import java.util.Iterator;
-          import java.util.Set;
           import java.util.concurrent.Executors;
           import java.util.concurrent.ScheduledExecutorService;
           import java.util.concurrent.TimeUnit;
           import org.json.JSONObject;
 
           public class GurukulPushService extends Service {
-              public static final String CHANNEL_ID = "GSSS_WHATSAPP_POPUP_V7";
+              public static final String POPUP_CHANNEL_ID = "GSSS_WHATSAPP_POPUP_V8";
+              public static final String BG_SYNC_CHANNEL_ID = "GSSS_SILENT_SYNC_V8";
               private ScheduledExecutorService scheduler;
+              private PowerManager.WakeLock partialWakeLock;
 
               @Override
               public void onCreate() {
                   super.onCreate();
-                  createHighPriorityChannel(this);
+                  createChannels(this);
+                  startUnkillableForegroundMode();
+                  acquireKeepAliveWakeLock();
+
                   scheduler = Executors.newSingleThreadScheduledExecutor();
-                  scheduler.scheduleWithFixedDelay(this::checkFirebaseNotifications, 1, 6, TimeUnit.SECONDS);
+                  scheduler.scheduleWithFixedDelay(this::checkFirebaseNotifications, 1, 4, TimeUnit.SECONDS);
               }
 
-              public static void createHighPriorityChannel(Context ctx) {
+              private void acquireKeepAliveWakeLock() {
+                  try {
+                      PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                      if (pm != null && partialWakeLock == null) {
+                          partialWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "GurukulSchool::BgPushLock");
+                          partialWakeLock.setReferenceCounted(false);
+                          partialWakeLock.acquire();
+                      }
+                  } catch (Exception ignored) {}
+              }
+
+              private void startUnkillableForegroundMode() {
+                  try {
+                      Intent intent = new Intent(this, MainActivity.class);
+                      PendingIntent pi = PendingIntent.getActivity(
+                          this, 0, intent,
+                          PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                      );
+
+                      Notification syncNotif = new NotificationCompat.Builder(this, BG_SYNC_CHANNEL_ID)
+                          .setSmallIcon(R.drawable.ic_launcher)
+                          .setContentTitle("Gurukul School Live Alerts Active")
+                          .setContentText("Connected to School ERP Server 24×7")
+                          .setPriority(NotificationCompat.PRIORITY_MIN)
+                          .setOngoing(true)
+                          .setSilent(true)
+                          .setContentIntent(pi)
+                          .build();
+
+                      if (Build.VERSION.SDK_INT >= 34) {
+                          startForeground(999, syncNotif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+                      } else {
+                          startForeground(999, syncNotif);
+                      }
+                  } catch (Exception ignored) {}
+              }
+
+              public static void createChannels(Context ctx) {
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                       NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
                       if (nm == null) return;
-                      NotificationChannel ch = new NotificationChannel(
-                          CHANNEL_ID,
+
+                      // 1. Silent Background Keep-Alive Channel
+                      NotificationChannel syncCh = new NotificationChannel(
+                          BG_SYNC_CHANNEL_ID,
+                          "Gurukul Background Connection",
+                          NotificationManager.IMPORTANCE_LOW
+                      );
+                      syncCh.setDescription("Keeps school alerts active when app is closed");
+                      syncCh.setSound(null, null);
+                      syncCh.enableVibration(false);
+                      syncCh.setShowBadge(false);
+                      nm.createNotificationChannel(syncCh);
+
+                      // 2. High-Priority WhatsApp-Style Popup Channel
+                      NotificationChannel popCh = new NotificationChannel(
+                          POPUP_CHANNEL_ID,
                           "Gurukul Instant Popup Alerts",
                           NotificationManager.IMPORTANCE_HIGH
                       );
-                      ch.setDescription("WhatsApp-style Popup Alerts with Vibration & Sound");
-                      ch.enableLights(true);
-                      ch.enableVibration(true);
-                      ch.setVibrationPattern(new long[]{0, 600, 200, 600, 200, 800});
-                      ch.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
-                      ch.setBypassDnd(true);
+                      popCh.setDescription("Instant School Popup Alerts with Vibration & Sound");
+                      popCh.enableLights(true);
+                      popCh.enableVibration(true);
+                      popCh.setVibrationPattern(new long[]{0, 600, 200, 600, 200, 800});
+                      popCh.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+                      popCh.setBypassDnd(true);
 
                       Uri soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
                       AudioAttributes attrs = new AudioAttributes.Builder()
                           .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
                           .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                           .build();
-                      ch.setSound(soundUri, attrs);
-                      nm.createNotificationChannel(ch);
+                      popCh.setSound(soundUri, attrs);
+                      nm.createNotificationChannel(popCh);
                   }
               }
 
               private void checkFirebaseNotifications() {
+                  HttpURLConnection conn = null;
                   try {
-                      SharedPreferences prefs = getSharedPreferences("GSSS_PREFS_V7", MODE_PRIVATE);
+                      SharedPreferences prefs = getSharedPreferences("GSSS_PREFS_V8", MODE_PRIVATE);
                       String myStuId = prefs.getString("studentId", "ALL");
                       String myClass = prefs.getString("className", "ALL");
                       boolean isAdmin = prefs.getBoolean("isAdmin", false);
-                      Set<String> seenSet = new HashSet<>(prefs.getStringSet("seenIds", new HashSet<>()));
                       boolean isFirstSync = !prefs.getBoolean("initialSyncDone", false);
 
-                      URL url = new URL("https://gsss-dhankoli-erp-default-rtdb.firebaseio.com/notifications.json");
-                      HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                      // Cache-busting URL so Android never returns stale cached JSON in background
+                      URL url = new URL("https://gsss-dhankoli-erp-default-rtdb.firebaseio.com/notifications.json?t=" + System.currentTimeMillis());
+                      conn = (HttpURLConnection) url.openConnection();
                       conn.setRequestMethod("GET");
+                      conn.setUseCaches(false);
+                      conn.setRequestProperty("Cache-Control", "no-cache, no-store, must-revalidate");
+                      conn.setRequestProperty("Pragma", "no-cache");
                       conn.setConnectTimeout(6000);
                       conn.setReadTimeout(6000);
 
@@ -305,25 +376,26 @@ jobs:
                       reader.close();
 
                       String jsonStr = sb.toString().trim();
-                      // Fix: Even if database is currently empty, mark initialSyncDone = true so next notification is NEVER skipped!
                       if (jsonStr.isEmpty() || jsonStr.equals("null")) {
                           if (isFirstSync) {
-                              prefs.edit().putBoolean("initialSyncDone", true).apply();
+                              prefs.edit().putBoolean("initialSyncDone", true).commit();
                           }
                           return;
                       }
 
                       JSONObject root = new JSONObject(jsonStr);
                       Iterator<String> keys = root.keys();
-                      boolean changed = false;
+                      SharedPreferences.Editor editor = prefs.edit();
+                      boolean anyUpdate = false;
 
                       while (keys.hasNext()) {
                           String key = keys.next();
-                          if (seenSet.contains(key)) continue;
+                          String seenFlagKey = "SEEN_" + key;
+                          if (prefs.getBoolean(seenFlagKey, false)) continue;
 
                           JSONObject n = root.optJSONObject(key);
-                          seenSet.add(key);
-                          changed = true;
+                          editor.putBoolean(seenFlagKey, true);
+                          anyUpdate = true;
 
                           if (isFirstSync || n == null) continue;
 
@@ -337,37 +409,47 @@ jobs:
                           boolean match = isAdmin
                               || "ALL".equalsIgnoreCase(myStuId)
                               || "ALL".equalsIgnoreCase(tType)
-                              || ("CLASS".equalsIgnoreCase(tType) && tVal.equalsIgnoreCase(myClass))
+                              || ("CLASS".equalsIgnoreCase(tType) && ("ALL".equalsIgnoreCase(myClass) || tVal.equalsIgnoreCase(myClass)))
                               || ("STUDENT".equalsIgnoreCase(tType) && tVal.equalsIgnoreCase(myStuId));
 
                           if (match) {
-                              fireNativeHighAlert(this, "🔔 " + title, msg, Math.abs(key.hashCode()));
+                              fireNativeHighAlert(this, "🔔 " + title, msg, key);
                           }
                       }
 
-                      if (changed || isFirstSync) {
-                          SharedPreferences.Editor ed = prefs.edit();
-                          ed.remove("seenIds").apply();
-                          ed.putStringSet("seenIds", seenSet)
-                            .putBoolean("initialSyncDone", true)
-                            .apply();
+                      if (isFirstSync || anyUpdate) {
+                          editor.putBoolean("initialSyncDone", true);
+                          editor.commit();
                       }
-                  } catch (Exception ignored) {}
+                  } catch (Exception ignored) {
+                  } finally {
+                      if (conn != null) conn.disconnect();
+                  }
               }
 
-              public static void fireNativeHighAlert(Context ctx, String title, String message, int notifId) {
+              public static void fireNativeHighAlert(Context ctx, String title, String message, String uniqueKey) {
                   try {
-                      createHighPriorityChannel(ctx);
+                      SharedPreferences prefs = ctx.getSharedPreferences("GSSS_PREFS_V8", MODE_PRIVATE);
+                      if (uniqueKey != null && !uniqueKey.isEmpty()) {
+                          String firedKey = "FIRED_" + uniqueKey;
+                          if (prefs.getBoolean(firedKey, false)) return;
+                          prefs.edit()
+                              .putBoolean(firedKey, true)
+                              .putBoolean("SEEN_" + uniqueKey, true)
+                              .commit();
+                      }
 
-                      // 1. Wake up screen if phone is locked/off
+                      createChannels(ctx);
+
+                      // 1. Wake up screen immediately even if phone is locked
                       try {
                           PowerManager pm = (PowerManager) ctx.getSystemService(Context.POWER_SERVICE);
                           if (pm != null) {
                               PowerManager.WakeLock wl = pm.newWakeLock(
                                   PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
-                                  "GurukulSchool:NotifWake"
+                                  "GurukulSchool:PopupWake"
                               );
-                              wl.acquire(4000);
+                              wl.acquire(4500);
                           }
                       } catch (Exception ignored) {}
 
@@ -391,7 +473,8 @@ jobs:
                           if (r != null && !r.isPlaying()) r.play();
                       } catch (Exception ignored) {}
 
-                      // 4. WhatsApp/Facebook Style Heads-Up Screen Popup Banner
+                      // 4. WhatsApp/Facebook Style Heads-Up Banner
+                      int notifId = (uniqueKey != null) ? Math.abs(uniqueKey.hashCode()) : (int) (System.currentTimeMillis() & 0xfffffff);
                       Intent intent = new Intent(ctx, MainActivity.class);
                       intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
                       PendingIntent pi = PendingIntent.getActivity(
@@ -401,7 +484,7 @@ jobs:
 
                       Bitmap largeLogo = BitmapFactory.decodeResource(ctx.getResources(), R.drawable.ic_launcher);
 
-                      NotificationCompat.Builder builder = new NotificationCompat.Builder(ctx, CHANNEL_ID)
+                      NotificationCompat.Builder builder = new NotificationCompat.Builder(ctx, POPUP_CHANNEL_ID)
                           .setSmallIcon(android.R.drawable.ic_popup_reminder)
                           .setLargeIcon(largeLogo)
                           .setContentTitle(title)
@@ -423,21 +506,27 @@ jobs:
 
               @Override
               public int onStartCommand(Intent intent, int flags, int startId) {
+                  startUnkillableForegroundMode();
+                  acquireKeepAliveWakeLock();
                   return START_STICKY;
               }
 
               @Override
               public void onTaskRemoved(Intent rootIntent) {
-                  Intent restartIntent = new Intent(getApplicationContext(), GurukulPushService.class);
-                  restartIntent.setPackage(getPackageName());
-                  PendingIntent pi = PendingIntent.getService(
-                      getApplicationContext(), 1, restartIntent,
-                      PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE
-                  );
-                  AlarmManager am = (AlarmManager) getApplicationContext().getSystemService(Context.ALARM_SERVICE);
-                  if (am != null) {
-                      am.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + 1500, pi);
-                  }
+                  try {
+                      Intent restartBroadcast = new Intent(getApplicationContext(), BootReceiver.class);
+                      restartBroadcast.setAction("com.gurukul.dhankoli.RESTART_PUSH_SERVICE");
+                      sendBroadcast(restartBroadcast);
+
+                      PendingIntent pi = PendingIntent.getBroadcast(
+                          getApplicationContext(), 101, restartBroadcast,
+                          PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                      );
+                      AlarmManager am = (AlarmManager) getApplicationContext().getSystemService(Context.ALARM_SERVICE);
+                      if (am != null) {
+                          am.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + 1500, pi);
+                      }
+                  } catch (Exception ignored) {}
                   super.onTaskRemoved(rootIntent);
               }
 
@@ -448,18 +537,22 @@ jobs:
           }
           EOF
 
-          # 3. MainActivity.java (Auto-Syncs with index.html & Fires Instant Popup Alerts)
+          # 3. MainActivity.java (Keeps Background Service Alive + Requests 1-Tap Unrestricted Battery)
           cat << 'EOF' > android-app/app/src/main/java/com/gurukul/dhankoli/MainActivity.java
           package com.gurukul.dhankoli;
 
           import android.Manifest;
           import android.annotation.SuppressLint;
+          import android.content.Context;
           import android.content.Intent;
           import android.content.SharedPreferences;
           import android.content.pm.PackageManager;
           import android.net.Uri;
           import android.os.Build;
           import android.os.Bundle;
+          import android.os.PowerManager;
+          import android.provider.Settings;
+          import android.view.View;
           import android.view.WindowManager;
           import android.webkit.GeolocationPermissions;
           import android.webkit.JavascriptInterface;
@@ -478,7 +571,7 @@ jobs:
               private WebView webView;
               private ValueCallback<Uri[]> filePathCallback;
 
-              @SuppressLint("SetJavaScriptEnabled")
+              @SuppressLint({"SetJavaScriptEnabled", "BatteryLife"})
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
@@ -488,18 +581,43 @@ jobs:
                       WindowManager.LayoutParams.FLAG_SECURE
                   );
 
-                  GurukulPushService.createHighPriorityChannel(this);
+                  // 1. Start 24x7 Foreground Push Service
+                  GurukulPushService.createChannels(this);
                   try {
-                      startService(new Intent(this, GurukulPushService.class));
+                      Intent srv = new Intent(this, GurukulPushService.class);
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                          startForegroundService(srv);
+                      } else {
+                          startService(srv);
+                      }
                   } catch (Exception ignored) {}
 
+                  // 2. Request Notification Permission (Android 13+)
                   if (Build.VERSION.SDK_INT >= 33) {
                       if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                           ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, 202);
                       }
                   }
 
-                  webView = new WebView(this);
+                  // 3. 1-Tap Battery Optimization Exemption (So phone NEVER freezes background internet)
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                      try {
+                          PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                          if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                              Intent bIntent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                              bIntent.setData(Uri.parse("package:" + getPackageName()));
+                              startActivity(bIntent);
+                          }
+                      } catch (Exception ignored) {}
+                  }
+
+                  webView = new WebView(this) {
+                      // Prevent Android from freezing WebView timers when minimized to Recent Apps
+                      @Override
+                      protected void onWindowVisibilityChanged(int visibility) {
+                          super.onWindowVisibilityChanged(View.VISIBLE);
+                      }
+                  };
                   setContentView(webView);
 
                   WebSettings settings = webView.getSettings();
@@ -527,22 +645,22 @@ jobs:
 
                       @JavascriptInterface
                       public void syncUserSession(final String studentId, final String className, final boolean isAdmin) {
-                          SharedPreferences prefs = getSharedPreferences("GSSS_PREFS_V7", MODE_PRIVATE);
+                          SharedPreferences prefs = getSharedPreferences("GSSS_PREFS_V8", MODE_PRIVATE);
                           prefs.edit()
                               .putString("studentId", (studentId != null && !studentId.isEmpty()) ? studentId : "ALL")
                               .putString("className", (className != null && !className.isEmpty()) ? className : "ALL")
                               .putBoolean("isAdmin", isAdmin)
-                              .apply();
+                              .commit();
                       }
 
                       @JavascriptInterface
-                      public void triggerPopupNotification(final String title, final String body) {
+                      public void triggerPopupNotification(final String title, final String body, final String idTag) {
                           runOnUiThread(() -> {
                               GurukulPushService.fireNativeHighAlert(
                                   MainActivity.this,
                                   title != null ? title : "🔔 Gurukul Alert",
                                   body != null ? body : "",
-                                  (int) (System.currentTimeMillis() & 0xfffffff)
+                                  idTag
                               );
                           });
                       }
@@ -558,7 +676,6 @@ jobs:
                           return false;
                       }
 
-                      // Automatically bridges index.html notifications & student session to Native Android!
                       @Override
                       public void onPageFinished(WebView view, String url) {
                           super.onPageFinished(view, url);
@@ -572,9 +689,9 @@ jobs:
                               "      var isAdm = localStorage.getItem('GSSS_ADMIN_LOGGED_IN') === 'true';" +
                               "      if(window.Android && window.Android.syncUserSession) window.Android.syncUserSession(sId, sCls, isAdm);" +
                               "    } catch(e){}" +
-                              "  }, 2500);" +
+                              "  }, 2000);" +
                               "  window.fireAndroidStatusBarNotification = function(title, body, idTag){" +
-                              "    try { if(window.Android && window.Android.triggerPopupNotification) window.Android.triggerPopupNotification(title, body); } catch(e){}" +
+                              "    try { if(window.Android && window.Android.triggerPopupNotification) window.Android.triggerPopupNotification(title, body, idTag || ''); } catch(e){}" +
                               "  };" +
                               "})();";
                           view.evaluateJavascript(jsBridge, null);
