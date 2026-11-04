@@ -32,12 +32,20 @@ jobs:
           mkdir -p android-app/app/src/main/java/com/gurukul/dhankoli
           mkdir -p android-app/app/src/main/res/values
           mkdir -p android-app/app/src/main/res/drawable
+          mkdir -p android-app/app/src/main/assets
 
-          # स्कूल लोगो को असली PNG आइकन में कन्वर्ट करना
-          curl -L "https://gsssdhankoli.github.io/Logo.png/logo.png" -o /tmp/raw_logo.img
-          ffmpeg -y -i /tmp/raw_logo.img -vf scale=256:256 android-app/app/src/main/res/drawable/ic_launcher.png || cp /tmp/raw_logo.img android-app/app/src/main/res/drawable/ic_launcher.png
+          # अगर रिपॉजिटरी में index.html है तो उसे APK के अंदर भी बैकअप में रखें
+          if [ -f "index.html" ]; then
+            cp index.html android-app/app/src/main/assets/index.html
+          fi
 
-          # Auto-Generate Official Signing Key (APK व Play Store AAB के लिए)
+          # 100% Valid PNG32 App Icon Generator (AAPT2 कभी फेल नहीं होगा)
+          curl -f -s -L "https://gsssdhankoli.github.io/Logo.png/logo.png" -o /tmp/raw_logo.img || true
+          convert /tmp/raw_logo.img -resize 192x192 PNG32:android-app/app/src/main/res/drawable/ic_launcher.png 2>/dev/null || \
+          ffmpeg -y -i /tmp/raw_logo.img -vf scale=192:192 -pix_fmt rgba android-app/app/src/main/res/drawable/ic_launcher.png 2>/dev/null || \
+          convert -size 192x192 xc:"#1e3a8a" PNG32:android-app/app/src/main/res/drawable/ic_launcher.png
+
+          # Auto-Generate Official Signing Key
           keytool -genkey -v -keystore android-app/app/gurukul-key.jks -keyalg RSA -keysize 2048 -validity 10000 -alias gurukul -storepass gurukul123 -keypass gurukul123 -dname "CN=Gurukul School Dhankoli, OU=Education, O=GSSS, L=Dhankoli, S=Rajasthan, C=IN"
 
           cat << 'EOF' > android-app/settings.gradle
@@ -67,8 +75,11 @@ jobs:
                   applicationId "com.gurukul.dhankoli"
                   minSdk 23
                   targetSdk 34
-                  versionCode 2
-                  versionName "2.0"
+                  versionCode 4
+                  versionName "4.0"
+              }
+              aaptOptions {
+                  cruncherEnabled false
               }
               signingConfigs {
                   release {
@@ -133,6 +144,8 @@ jobs:
           import android.webkit.JavascriptInterface;
           import android.webkit.ValueCallback;
           import android.webkit.WebChromeClient;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebResourceResponse;
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
@@ -147,7 +160,7 @@ jobs:
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
 
-                  // साइड बटन (Power + Vol Down) स्क्रीनशॉट व स्क्रीन रिकॉर्डिंग को हार्डवेयर लेवल पर ब्लॉक करना
+                  // साइड बटन (Power + Volume Down) स्क्रीनशॉट व स्क्रीन रिकॉर्डिंग को 100% ब्लॉक करना
                   getWindow().setFlags(
                       WindowManager.LayoutParams.FLAG_SECURE,
                       WindowManager.LayoutParams.FLAG_SECURE
@@ -164,7 +177,7 @@ jobs:
                   settings.setGeolocationEnabled(true);
                   settings.setMediaPlaybackRequiresUserGesture(false);
 
-                  // एडमिन के 16-Portal Screenshot Control से सीधा कनेक्शन
+                  // Admin Point-by-Point Screenshot Control Bridge
                   webView.addJavascriptInterface(new Object() {
                       @JavascriptInterface
                       public void setFlagSecure(final boolean restrict) {
@@ -190,6 +203,18 @@ jobs:
                           }
                           return false;
                       }
+
+                      @Override
+                      public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse errorResponse) {
+                          if (request.isForMainFrame() && errorResponse.getStatusCode() == 404) {
+                              String failedUrl = request.getUrl().toString();
+                              if (!failedUrl.contains("GURKUL-School-app")) {
+                                  view.loadUrl("https://balvikasdhankoli341516-boop.github.io/GURKUL-School-app/");
+                              } else {
+                                  view.loadUrl("file:///android_asset/index.html");
+                              }
+                          }
+                      }
                   });
 
                   webView.setWebChromeClient(new WebChromeClient() {
@@ -206,6 +231,7 @@ jobs:
                       }
                   });
 
+                  // Load Main GitHub Pages URL
                   webView.loadUrl("https://balvikasdhankoli341516-boop.github.io/");
               }
 
