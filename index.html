@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+< lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -6077,8 +6077,7 @@ Capital of Rajasthan is? | Jodhpur | Udaipur | Jaipur | Ajmer | C</textarea>
       await showCustomAlert(`✅ Exam Submitted!\nScore: ${score}/${maxMarks} (${percentage}%)`, "Exam Submitted", "SUCCESS");
       openStudentModuleModal(ex.category === "SCHOLARSHIP_PHASE_1" ? "SCHOLARSHIP" : "LIVE_CBT");
     };
-
-    renderAdminScholarshipCandidates = function() {
+        renderAdminScholarshipCandidates = function() {
       const box = document.getElementById("adminScholarshipAppsList");
       if (!box) return;
       const entries = Object.entries(allScholarshipData.candidates || {}).filter(([k, c]) => c && c.studentName).reverse();
@@ -6101,117 +6100,51 @@ Capital of Rajasthan is? | Jodhpur | Udaipur | Jaipur | Ajmer | C</textarea>
                 <button type="button" onclick="openUniversalEditModal('${fbKey}','SCHOLARSHIP')" class="bg-indigo-600 text-white px-2.5 py-1 rounded font-bold"><i class="fa-solid fa-pen"></i> Edit</button>
                 <button type="button" onclick="deleteFirebaseNodeByKey('scholarship/candidates/${fbKey}', 'Scholarship Candidate')" class="bg-rose-600 text-white px-2.5 py-1 rounded font-bold"><i class="fa-solid fa-trash"></i></button>
               </div>
-              ${!c.convertedMasterId ? `
-                <button type="button" onclick="convertScholarshipToPermanentAdmission('${fbKey}')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded font-extrabold shadow">
-                  <i class="fa-solid fa-user-check mr-1"></i> Permanent Admission
-                </button>
-              ` : ""}
+              ${!c.convertedMasterId ? `<button type="button" onclick="convertScholarshipToPermanentAdmission('${fbKey}')" class="bg-emerald-600 text-white px-3 py-1 rounded font-extrabold shadow">Permanent Admission</button>` : ""}
             </div>
           </div>
         `;
       }).join("") || `<p class="text-xs text-slate-400">No approved scholarship candidates yet.</p>`;
     };
 
-    // =========================================================
     // 4. SCHOLARSHIP PHASE-2 "EXAM COMPLETED" TIMER FIX
-    // =========================================================
     formatCountdownString = function(targetIso) {
       if (!targetIso) return "SCHEDULE PENDING";
       const startMs = new Date(targetIso).getTime();
       if (isNaN(startMs)) return "SCHEDULE PENDING";
-      const nowMs = Date.now();
-      const diff = startMs - nowMs;
-
-      const cfg = (allScholarshipData && allScholarshipData.config) ? allScholarshipData.config : {};
-      const durationMs = (Number(cfg.examDurationHours) || 3) * 3600000;
-      const endMs = startMs + durationMs;
-
-      if (nowMs > endMs) {
-        return "✅ EXAMINATION COMPLETED (परीक्षा संपन्न)";
-      }
-      if (diff <= 0) {
-        return "🔴 OFFLINE EXAM LIVE NOW";
-      }
-      const d = Math.floor(diff / 86400000);
-      const h = Math.floor((diff % 86400000) / 3600000);
-      const m = Math.floor((diff % 3600000) / 60000);
-      const s = Math.floor((diff % 60000) / 1000);
+      const diff = startMs - Date.now();
+      if (Date.now() > startMs + 3 * 3600000) return "✅ EXAMINATION COMPLETED (परीक्षा संपन्न)";
+      if (diff <= 0) return "🔴 OFFLINE EXAM LIVE NOW";
+      const d = Math.floor(diff / 86400000), h = Math.floor((diff % 86400000) / 3600000), m = Math.floor((diff % 3600000) / 60000), s = Math.floor((diff % 60000) / 1000);
       return `${String(d).padStart(2, '0')}d : ${String(h).padStart(2, '0')}h : ${String(m).padStart(2, '0')}m : ${String(s).padStart(2, '0')}s`;
     };
 
-    // =========================================================
-    // 5. POINT-BY-POINT GRANULAR SCREENSHOT CONTROL + SIDE-BUTTON JUGAD
-    // =========================================================
+    // 5. SMOOTH POINT-BY-POINT SCREENSHOT CONTROL (NO TOUCH-HOLD DIFFICULTY)
     let currentOpenedStudentPortal = "STUDENT_DASHBOARD";
-    let isFingerCurrentlyTouching = false;
-    let touchReleaseBlurTimer = null;
-
     const SCREENSHOT_CONTROL_POINTS = [
-      { id: "STUDENT_DASHBOARD", label: "Student Main Dashboard Screen", icon: "fa-gauge-high" },
-      { id: "PUBLIC_AUTH", label: "Public Landing & Admission Form", icon: "fa-door-open" },
+      { id: "STUDENT_DASHBOARD", label: "Student Main Dashboard", icon: "fa-gauge-high" },
+      { id: "PUBLIC_AUTH", label: "Public Landing & Form", icon: "fa-door-open" },
       ...ALL_MODULES.map(m => ({ id: m.id, label: m.nameEN, icon: m.icon }))
     ];
 
     function getActiveStudentScreenKey() {
-      const pubView = document.getElementById("publicAuthView");
-      if (pubView && !pubView.classList.contains("hidden")) return "PUBLIC_AUTH";
-      const modModal = document.getElementById("studentModuleViewerModal");
-      if (modModal && !modModal.classList.contains("hidden") && currentOpenedStudentPortal) {
-        return currentOpenedStudentPortal;
-      }
+      if (!document.getElementById("publicAuthView")?.classList.contains("hidden")) return "PUBLIC_AUTH";
+      if (!document.getElementById("studentModuleViewerModal")?.classList.contains("hidden")) return currentOpenedStudentPortal;
       return "STUDENT_DASHBOARD";
     }
 
-    // Checks if Screenshot is ALLOWED on the exact screen/portal currently open
     function isScreenshotAllowedOnCurrentScreen() {
       if (localStorage.getItem("GSSS_ADMIN_LOGGED_IN") === "true") return true;
       const locks = globalPortalLocks || {};
-      const activeKey = getActiveStudentScreenKey();
-      const specificRule = locks[`SS_POINT_${activeKey}`];
-      if (specificRule === "ALLOW") return true;
-      if (specificRule === "BLOCK") return false;
-      // Fallback to global switch
+      const rule = locks[`SS_POINT_${getActiveStudentScreenKey()}`];
+      if (rule === "ALLOW") return true;
+      if (rule === "BLOCK") return false;
       return locks["ALLOW_SCREENSHOTS"] === "ALLOWED";
-    }
-
-    function isSideButtonHoldModeEnabled() {
-      const locks = globalPortalLocks || {};
-      return locks["SS_SIDE_BUTTON_HOLD_MODE"] !== "OFF";
-    }
-
-    function syncHardwareFlagSecureForCurrentScreen() {
-      const allowed = isScreenshotAllowedOnCurrentScreen();
-      try {
-        if (window.Android && typeof window.Android.setFlagSecure === "function") {
-          window.Android.setFlagSecure(!allowed);
-        }
-        if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.PrivacyScreen) {
-          if (allowed) window.Capacitor.Plugins.PrivacyScreen.disable();
-          else window.Capacitor.Plugins.PrivacyScreen.enable();
-        }
-      } catch (e) {}
-    }
-
-    function activatePrivacyBlurNow() {
-      if (isScreenshotAllowedOnCurrentScreen()) {
-        resumeFromPrivacyBlur();
-        return;
-      }
-      document.body.classList.add("gsss-app-blurred");
-      const shield = document.getElementById("gsssBlurPrivacyShield");
-      if (shield) shield.style.display = "flex";
-    }
-
-    function resumeFromPrivacyBlur(e) {
-      document.body.classList.remove("gsss-app-blurred");
-      const shield = document.getElementById("gsssBlurPrivacyShield");
-      if (shield) shield.style.display = "none";
     }
 
     function applyScreenshotProtectionState() {
       const allowed = isScreenshotAllowedOnCurrentScreen();
-      const locks = globalPortalLocks || {};
-      const globalAllow = locks["ALLOW_SCREENSHOTS"] === "ALLOWED";
+      const globalAllow = (globalPortalLocks || {})["ALLOW_SCREENSHOTS"] === "ALLOWED";
 
       const topBtn = document.getElementById("btnAdminScreenshotToggle");
       if (topBtn) {
@@ -6222,15 +6155,14 @@ Capital of Rajasthan is? | Jodhpur | Udaipur | Jaipur | Ajmer | C</textarea>
       }
 
       const holdBtn = document.getElementById("btnSideButtonStrictMode");
-      if (holdBtn) {
-        const holdOn = isSideButtonHoldModeEnabled();
-        holdBtn.className = holdOn
-          ? "bg-amber-500 text-slate-950 font-extrabold px-3 py-1.5 rounded-lg text-xs"
-          : "bg-slate-600 text-white font-bold px-3 py-1.5 rounded-lg text-xs";
-        holdBtn.innerText = `🛡️ Side-Button Hold-to-View: ${holdOn ? 'ON' : 'OFF'}`;
-      }
+      if (holdBtn) holdBtn.style.display = "none";
 
-      syncHardwareFlagSecureForCurrentScreen();
+      // Connect directly with Android APK Hardware FLAG_SECURE
+      try {
+        if (window.Android && typeof window.Android.setFlagSecure === "function") {
+          window.Android.setFlagSecure(!allowed);
+        }
+      } catch (e) {}
 
       if (allowed) {
         document.body.classList.remove("gsss-screenshot-locked");
@@ -6238,8 +6170,20 @@ Capital of Rajasthan is? | Jodhpur | Udaipur | Jaipur | Ajmer | C</textarea>
       } else {
         document.body.classList.add("gsss-screenshot-locked");
       }
-
       renderGranularScreenshotControlGrid();
+    }
+
+    function activatePrivacyBlurNow() {
+      if (isScreenshotAllowedOnCurrentScreen()) return;
+      document.body.classList.add("gsss-app-blurred");
+      const sh = document.getElementById("gsssBlurPrivacyShield");
+      if (sh) sh.style.display = "flex";
+    }
+
+    function resumeFromPrivacyBlur() {
+      document.body.classList.remove("gsss-app-blurred");
+      const sh = document.getElementById("gsssBlurPrivacyShield");
+      if (sh) sh.style.display = "none";
     }
 
     function openAdminScreenshotControlCenter() {
@@ -6250,44 +6194,28 @@ Capital of Rajasthan is? | Jodhpur | Udaipur | Jaipur | Ajmer | C</textarea>
     function renderGranularScreenshotControlGrid() {
       const grid = document.getElementById("granularScreenshotGrid");
       if (!grid) return;
-      const locks = globalPortalLocks || {};
-      const defaultGlobal = locks["ALLOW_SCREENSHOTS"] === "ALLOWED" ? "ALLOW" : "BLOCK";
-
+      const locks = globalPortalLocks || {}, def = locks["ALLOW_SCREENSHOTS"] === "ALLOWED" ? "ALLOW" : "BLOCK";
       grid.innerHTML = SCREENSHOT_CONTROL_POINTS.map(pt => {
-        const current = locks[`SS_POINT_${pt.id}`] || defaultGlobal;
-        const isAllow = current === "ALLOW";
+        const isAllow = (locks[`SS_POINT_${pt.id}`] || def) === "ALLOW";
         return `
-          <div class="p-3 rounded-xl border ${isAllow ? 'bg-emerald-50/60 border-emerald-300' : 'bg-rose-50/60 border-rose-300'} flex items-center justify-between gap-2 text-xs">
-            <div class="flex items-center gap-2">
-              <div class="w-8 h-8 rounded-lg ${isAllow ? 'bg-emerald-600' : 'bg-rose-600'} text-white flex items-center justify-center shrink-0">
-                <i class="fa-solid ${pt.icon}"></i>
-              </div>
-              <div>
-                <div class="font-extrabold text-slate-900">${escapeHtml(pt.label)}</div>
-                <div class="text-[10px] font-bold ${isAllow ? 'text-emerald-700' : 'text-rose-700'}">Screenshot: ${isAllow ? 'ALLOWED ✅' : 'BLOCKED 🚫'}</div>
-              </div>
-            </div>
-            <button type="button" onclick="toggleSinglePortalScreenshot('${pt.id}')" class="px-3 py-1.5 rounded-lg font-extrabold text-[11px] shadow ${isAllow ? 'bg-rose-600 text-white' : 'bg-emerald-600 text-white'}">
-              ${isAllow ? 'Block' : 'Allow'}
-            </button>
+          <div class="p-2.5 rounded-xl border ${isAllow ? 'bg-emerald-50 border-emerald-300' : 'bg-rose-50 border-rose-300'} flex items-center justify-between gap-2 text-xs">
+            <span class="font-extrabold text-slate-900">${escapeHtml(pt.label)} (${isAllow ? 'ALLOWED ✅' : 'BLOCKED 🚫'})</span>
+            <button type="button" onclick="toggleSinglePortalScreenshot('${pt.id}')" class="px-3 py-1 rounded-lg font-extrabold text-white ${isAllow ? 'bg-rose-600' : 'bg-emerald-600'}">${isAllow ? 'Block' : 'Allow'}</button>
           </div>
         `;
       }).join("");
     }
 
-    async function toggleSinglePortalScreenshot(pointId) {
-      const locks = globalPortalLocks || {};
-      const defaultGlobal = locks["ALLOW_SCREENSHOTS"] === "ALLOWED" ? "ALLOW" : "BLOCK";
-      const current = locks[`SS_POINT_${pointId}`] || defaultGlobal;
-      const next = current === "ALLOW" ? "BLOCK" : "ALLOW";
-      await db.ref(`portalLocks/SS_POINT_${pointId}`).set(next);
-      globalPortalLocks[`SS_POINT_${pointId}`] = next;
+    async function toggleSinglePortalScreenshot(ptId) {
+      const locks = globalPortalLocks || {}, def = locks["ALLOW_SCREENSHOTS"] === "ALLOWED" ? "ALLOW" : "BLOCK";
+      const next = (locks[`SS_POINT_${ptId}`] || def) === "ALLOW" ? "BLOCK" : "ALLOW";
+      await db.ref(`portalLocks/SS_POINT_${ptId}`).set(next);
+      globalPortalLocks[`SS_POINT_${ptId}`] = next;
       applyScreenshotProtectionState();
     }
 
     async function setAllPortalsScreenshotPolicy(mode) {
-      const updates = {};
-      updates["portalLocks/ALLOW_SCREENSHOTS"] = mode === "ALLOW" ? "ALLOWED" : "BLOCKED";
+      const updates = { "portalLocks/ALLOW_SCREENSHOTS": mode === "ALLOW" ? "ALLOWED" : "BLOCKED" };
       SCREENSHOT_CONTROL_POINTS.forEach(pt => {
         updates[`portalLocks/SS_POINT_${pt.id}`] = mode;
         globalPortalLocks[`SS_POINT_${pt.id}`] = mode;
@@ -6295,222 +6223,77 @@ Capital of Rajasthan is? | Jodhpur | Udaipur | Jaipur | Ajmer | C</textarea>
       globalPortalLocks["ALLOW_SCREENSHOTS"] = mode === "ALLOW" ? "ALLOWED" : "BLOCKED";
       await db.ref().update(updates);
       applyScreenshotProtectionState();
-      await showCustomAlert(
-        mode === "ALLOW"
-          ? "✅ Screenshots are now ALLOWED across all portals!"
-          : "🚫 Screenshots are now STRICTLY BLOCKED across all portals!",
-        "Screenshot Policy Updated",
-        "SUCCESS"
-      );
+      await showCustomAlert(mode === "ALLOW" ? "✅ All Portals Allowed!" : "🚫 All Portals Blocked!", "Updated", "SUCCESS");
     }
 
-    async function toggleSideButtonTouchHoldMode() {
-      const next = isSideButtonHoldModeEnabled() ? "OFF" : "ON";
-      await db.ref("portalLocks/SS_SIDE_BUTTON_HOLD_MODE").set(next);
-      globalPortalLocks["SS_SIDE_BUTTON_HOLD_MODE"] = next;
-      applyScreenshotProtectionState();
-    }
+    function toggleSideButtonTouchHoldMode() {}
 
-    // Track which student portal is opened so its exact Screenshot Rule is applied
-    const _origOpenStuMod = openStudentModuleModal;
+    const _origOpenMod = openStudentModuleModal;
     openStudentModuleModal = async function(modId) {
       currentOpenedStudentPortal = modId;
-      await _origOpenStuMod(modId);
+      await _origOpenMod(modId);
       applyScreenshotProtectionState();
     };
 
-    const _origCloseStuMod = closeStudentModuleViewer;
+    const _origCloseMod = closeStudentModuleViewer;
     closeStudentModuleViewer = function() {
       currentOpenedStudentPortal = "STUDENT_DASHBOARD";
-      _origCloseStuMod();
+      _origCloseMod();
       applyScreenshotProtectionState();
     };
 
-    // SIDE-BUTTON JUGAD:
-    // 1. When finger touches screen (1 finger), unblur immediately so student can read/scroll
-    window.addEventListener("touchstart", e => {
-      if (isScreenshotAllowedOnCurrentScreen()) {
-        resumeFromPrivacyBlur();
-        return;
-      }
-      if (e.touches && e.touches.length >= 2) {
-        // Multi-finger gesture -> instant blur
-        if (touchReleaseBlurTimer) clearTimeout(touchReleaseBlurTimer);
-        activatePrivacyBlurNow();
-        return;
-      }
-      isFingerCurrentlyTouching = true;
-      if (touchReleaseBlurTimer) clearTimeout(touchReleaseBlurTimer);
-      resumeFromPrivacyBlur();
-    }, { passive: true });
-
-    // 2. When Android Side Buttons (Power + Vol Down) are pressed while touching, OS fires touchcancel -> Instant Blur!
-    window.addEventListener("touchcancel", () => {
-      isFingerCurrentlyTouching = false;
-      if (!isScreenshotAllowedOnCurrentScreen()) {
-        activatePrivacyBlurNow();
-      }
-    }, { passive: true });
-
-    // 3. When student lifts finger to press Side Buttons -> Blur screen within 1.2s on blocked portals if Hold-Mode is ON
-    window.addEventListener("touchend", e => {
-      if (isScreenshotAllowedOnCurrentScreen()) return;
-      if (!e.touches || e.touches.length === 0) {
-        isFingerCurrentlyTouching = false;
-        if (isSideButtonHoldModeEnabled() && currentOpenedStudentPortal !== "STUDENT_DASHBOARD") {
-          if (touchReleaseBlurTimer) clearTimeout(touchReleaseBlurTimer);
-          touchReleaseBlurTimer = setTimeout(() => {
-            if (!isFingerCurrentlyTouching && !isScreenshotAllowedOnCurrentScreen()) {
-              activatePrivacyBlurNow();
-            }
-          }, 1200);
-        }
-      }
-    }, { passive: true });
-
-    // 4. Recent Apps / Home Button / Back Button / Notification Bar / Volume HUD Blur
-    window.addEventListener("blur", () => {
-      if (!isScreenshotAllowedOnCurrentScreen()) activatePrivacyBlurNow();
-    });
-
+    // Blur only when app goes to Recent Apps / Home / Background (Never blurs while using app!)
+    window.addEventListener("blur", () => { if (!isScreenshotAllowedOnCurrentScreen()) activatePrivacyBlurNow(); });
     document.addEventListener("visibilitychange", () => {
       if (document.hidden && !isScreenshotAllowedOnCurrentScreen()) activatePrivacyBlurNow();
+      else if (!document.hidden) resumeFromPrivacyBlur();
     });
 
-    window.addEventListener("keydown", e => {
-      if (isScreenshotAllowedOnCurrentScreen()) return;
-      const k = (e.key || "").toLowerCase();
-      if (
-        k === "printscreen" ||
-        k.includes("volume") ||
-        ((e.ctrlKey || e.metaKey) && ["p", "s", "u", "c"].includes(k))
-      ) {
-        activatePrivacyBlurNow();
-      }
-    });
-
-    document.addEventListener("contextmenu", e => {
-      if (!isScreenshotAllowedOnCurrentScreen()) e.preventDefault();
-    });
-
-    // =========================================================
-    // 6. STARTUP ANIMATION LOADER (NO LOGIN FLASH ON APP OPEN)
-    // =========================================================
+    // 6. STARTUP ANIMATION LOADER AUTO-HIDE
     (function() {
-      const splashEl = document.getElementById("gsssStartupSplashLoader");
-      const statusTextEl = document.getElementById("gsssLoaderStatusText");
-      const publicViewEl = document.getElementById("publicAuthView");
+      const splash = document.getElementById("gsssStartupSplashLoader");
+      const pub = document.getElementById("publicAuthView");
+      const hasSession = localStorage.getItem("GSSS_ADMIN_LOGGED_IN") === "true" || Boolean(localStorage.getItem("GSSS_SAVED_STUDENT_ID"));
+      if (hasSession && pub) pub.classList.add("hidden");
 
-      const hasSavedAdmin = localStorage.getItem("GSSS_ADMIN_LOGGED_IN") === "true";
-      const savedStuId = localStorage.getItem("GSSS_SAVED_STUDENT_ID");
-      const savedStuToken = localStorage.getItem("GSSS_SAVED_DEVICE_TOKEN");
-      const hasSavedSession = hasSavedAdmin || Boolean(savedStuId && savedStuToken);
+      const hideLoader = () => { if (splash) splash.classList.add("loader-hidden"); };
+      if (!hasSession) window.addEventListener("DOMContentLoaded", () => setTimeout(hideLoader, 500));
 
-      if (hasSavedSession && publicViewEl) {
-        publicViewEl.classList.add("hidden");
-        if (statusTextEl) {
-          statusTextEl.innerText = hasSavedAdmin
-            ? "Loading Master Admin Control Panel..."
-            : `Welcome (${savedStuId}) — Opening your Student Portal...`;
-        }
-      }
-
-      window.hideGsssStartupLoader = function() {
-        if (splashEl) splashEl.classList.add("loader-hidden");
-      };
-
-      if (!hasSavedSession) {
-        window.addEventListener("DOMContentLoaded", () => {
-          setTimeout(hideGsssStartupLoader, 600);
-        });
-      }
-
-      const _prevStartAdmin = startAdminSession;
-      startAdminSession = async function() {
-        try {
-          await _prevStartAdmin();
-        } finally {
-          setTimeout(hideGsssStartupLoader, 250);
-        }
-      };
-
-      const _prevStartStudent = startStudentSession;
-      startStudentSession = function(stu, myToken) {
-        try {
-          _prevStartStudent(stu, myToken);
-        } finally {
-          setTimeout(hideGsssStartupLoader, 250);
-        }
-      };
-
-      const _prevLogout = logoutUser;
-      logoutUser = function() {
-        _prevLogout();
-        if (publicViewEl) publicViewEl.classList.remove("hidden");
-        hideGsssStartupLoader();
-      };
+      const _sAdm = startAdminSession;
+      startAdminSession = async function() { try { await _sAdm(); } finally { setTimeout(hideLoader, 200); } };
+      const _sStu = startStudentSession;
+      startStudentSession = function(s, t) { try { _sStu(s, t); } finally { setTimeout(hideLoader, 200); } };
 
       setTimeout(() => {
-        const isAdminHidden = document.getElementById("adminDashboardView")?.classList.contains("hidden");
-        const isStuHidden = document.getElementById("studentDashboardView")?.classList.contains("hidden");
-        if (isAdminHidden && isStuHidden && publicViewEl) {
-          publicViewEl.classList.remove("hidden");
+        if (document.getElementById("adminDashboardView")?.classList.contains("hidden") &&
+            document.getElementById("studentDashboardView")?.classList.contains("hidden") && pub) {
+          pub.classList.remove("hidden");
         }
-        hideGsssStartupLoader();
-      }, 4500);
+        hideLoader();
+      }, 3500);
     })();
 
-    // =========================================================
     // 7. ATTACH ADMIN BUTTONS & SYNC LISTENERS ON STARTUP
-    // =========================================================
     window.addEventListener("DOMContentLoaded", () => {
       ensureFeeCorrectionUIBox();
-
-      // Add Screenshot Control Center Button in Admin Top Bar
-      const adminTopBar = document.querySelector("#adminDashboardView .flex-wrap.items-center.gap-2");
-      if (adminTopBar && !document.getElementById("btnAdminScreenshotToggle")) {
-        const ssBtn = document.createElement("button");
-        ssBtn.type = "button";
-        ssBtn.id = "btnAdminScreenshotToggle";
-        ssBtn.onclick = openAdminScreenshotControlCenter;
-        ssBtn.className = "bg-rose-700 text-white text-xs font-extrabold px-3 py-2 rounded-xl flex items-center gap-1.5 shadow";
-        ssBtn.innerHTML = `<i class="fa-solid fa-camera"></i> Screenshot Control`;
-        adminTopBar.prepend(ssBtn);
+      const bar = document.querySelector("#adminDashboardView .flex-wrap.items-center.gap-2");
+      if (bar && !document.getElementById("btnAdminScreenshotToggle")) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.id = "btnAdminScreenshotToggle";
+        b.onclick = openAdminScreenshotControlCenter;
+        b.className = "bg-rose-700 text-white text-xs font-extrabold px-3 py-2 rounded-xl flex items-center gap-1.5 shadow";
+        b.innerHTML = `<i class="fa-solid fa-camera"></i> Screenshot Control`;
+        bar.prepend(b);
       }
-
-      db.ref("portalLocks").on("value", s => {
-        globalPortalLocks = s.val() || {};
-        applyScreenshotProtectionState();
-      });
-
-      db.ref("notifications").on("value", s => {
-        allNotifications = s.val() || {};
-        renderNotificationsListKeySafe();
-      });
-      db.ref("dailyTests").on("value", s => {
-        allDailyTests = s.val() || {};
-        renderPublishedDailyTests();
-      });
-      db.ref("cbtExams").on("value", s => {
-        allCBTExams = s.val() || {};
-        renderAdminCBTList();
-      });
-      db.ref("scholarship").on("value", s => {
-        allScholarshipData = s.val() || {};
-        renderAdminScholarshipCandidates();
-      });
-      db.ref("studyContent").on("value", s => {
-        allHomeworkAndPYQ = s.val() || {};
-        renderStudyContentListKeySafe();
-      });
-      db.ref("liveClasses").on("value", s => {
-        allLiveClasses = s.val() || {};
-        renderLiveClassListKeySafe();
-      });
-      db.ref("busRoutes").on("value", s => {
-        allBusRoutes = s.val() || {};
-        renderBusRoutesListKeySafe();
-      });
+      db.ref("portalLocks").on("value", s => { globalPortalLocks = s.val() || {}; applyScreenshotProtectionState(); });
+      db.ref("notifications").on("value", s => { allNotifications = s.val() || {}; renderNotificationsListKeySafe(); });
+      db.ref("dailyTests").on("value", s => { allDailyTests = s.val() || {}; renderPublishedDailyTests(); });
+      db.ref("cbtExams").on("value", s => { allCBTExams = s.val() || {}; renderAdminCBTList(); });
+      db.ref("scholarship").on("value", s => { allScholarshipData = s.val() || {}; renderAdminScholarshipCandidates(); });
+      db.ref("studyContent").on("value", s => { allHomeworkAndPYQ = s.val() || {}; renderStudyContentListKeySafe(); });
+      db.ref("liveClasses").on("value", s => { allLiveClasses = s.val() || {}; renderLiveClassListKeySafe(); });
+      db.ref("busRoutes").on("value", s => { allBusRoutes = s.val() || {}; renderBusRoutesListKeySafe(); });
 
       if (localStorage.getItem("GSSS_ADMIN_LOGGED_IN") === "true") {
         setTimeout(autoCleanCorruptedGhostRecords, 1500);
