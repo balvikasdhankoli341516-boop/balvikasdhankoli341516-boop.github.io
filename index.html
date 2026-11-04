@@ -6298,6 +6298,19 @@ Capital of Rajasthan is? | Jodhpur | Udaipur | Jaipur | Ajmer | C</textarea>
         setTimeout(autoCleanCorruptedGhostRecords, 1500);
       }
     });
+        // NATIVE ANDROID 24x7 BACKGROUND PUSH & HARDWARE VIBRATION BRIDGE
+    function syncStudentWithNativeAndroidPush() {
+      try {
+        if (window.Android && typeof window.Android.saveStudentInfo === "function") {
+          const sId = (loggedInStudent && loggedInStudent.masterId) || localStorage.getItem("GSSS_SAVED_STUDENT_ID") || "ALL";
+          const sCls = (loggedInStudent && loggedInStudent.currentClass) || "ALL";
+          window.Android.saveStudentInfo(sId, sCls);
+        }
+      } catch (e) {}
+    }
+    setInterval(syncStudentWithNativeAndroidPush, 4000);
+    window.addEventListener("DOMContentLoaded", () => setTimeout(syncStudentWithNativeAndroidPush, 1500));
+    
   </script>
 </body>
 </html>
