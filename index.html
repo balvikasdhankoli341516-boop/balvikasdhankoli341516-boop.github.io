@@ -6311,14 +6311,12 @@ Capital of Rajasthan is? | Jodhpur | Udaipur | Jaipur | Ajmer | C</textarea>
     setInterval(syncStudentWithNativeAndroidPush, 4000);
     window.addEventListener("DOMContentLoaded", () => setTimeout(syncStudentWithNativeAndroidPush, 1500));
             // =========================================================
-    // FINAL FIX PATCH V2: WHITE SCREEN FIX + 100% WORKING PDF + RESULT UPLOAD
+    // FINAL FIX PATCH V4: ALL 9 PDFS CONNECTED TO VERSION 10 APK
     // =========================================================
 
-    // --- 1. CHROME WHITE PAGE FIX & SMOOTH STARTUP LOADER ---
+    // 1. CHROME WHITE PAGE FIX & SMOOTH STARTUP LOADER
     (function() {
-      // Purana stuck CSS class hatayein taaki white screen kabhi na aaye
       document.body.classList.remove("gsss-has-saved-session");
-
       const splash = document.getElementById("gsssStartupSplashLoader");
       const pub = document.getElementById("publicAuthView");
       const admView = document.getElementById("adminDashboardView");
@@ -6328,14 +6326,12 @@ Capital of Rajasthan is? | Jodhpur | Udaipur | Jaipur | Ajmer | C</textarea>
         if (splash) splash.classList.add("loader-hidden");
         const isAdmHidden = !admView || admView.classList.contains("hidden");
         const isStuHidden = !stuView || stuView.classList.contains("hidden");
-        // Agar Admin ya Student dashboard nahi khula hai (jaise token expire ho gaya), to Login Page dikhayein
         if (isAdmHidden && isStuHidden && pub) {
           pub.classList.remove("hidden");
           pub.style.display = "";
         }
       };
 
-      // Check saved session cleanly
       window.addEventListener("DOMContentLoaded", () => {
         const isAdmin = localStorage.getItem("GSSS_ADMIN_LOGGED_IN") === "true";
         const savedId = localStorage.getItem("GSSS_SAVED_STUDENT_ID");
@@ -6347,13 +6343,11 @@ Capital of Rajasthan is? | Jodhpur | Udaipur | Jaipur | Ajmer | C</textarea>
           return;
         }
 
-        // Agar student ID save hai to Firebase se verify karein, aur galat/expired hone par Login Page kholein
         if (!isAdmin && savedId && savedToken) {
           const checkPath = savedId.startsWith("SCH-") ? `scholarship/candidates/${savedId}` : `students/${savedId}`;
           db.ref(checkPath).once("value", snap => {
             const u = snap.val();
             if (!u || u.status === "LEFT" || (u.activeSessionToken && u.activeSessionToken !== savedToken)) {
-              // Session expired on this browser -> Clear dead session & show Login Page (No White Screen!)
               localStorage.removeItem("GSSS_SAVED_STUDENT_ID");
               localStorage.removeItem("GSSS_SAVED_DEVICE_TOKEN");
               if (pub) { pub.classList.remove("hidden"); pub.style.display = ""; }
@@ -6362,12 +6356,11 @@ Capital of Rajasthan is? | Jodhpur | Udaipur | Jaipur | Ajmer | C</textarea>
           }).catch(() => setTimeout(hideLoaderAndEnsureScreen, 250));
         }
 
-        // Safety timer: 3 second baad loader hatakar screen zarur dikhayein
         setTimeout(hideLoaderAndEnsureScreen, 3000);
       });
     })();
 
-    // --- 2. HALF-YEARLY & YEARLY RESULT UPLOAD FIX (SLASH "/" SAFE) ---
+    // 2. HALF-YEARLY & YEARLY RESULT UPLOAD & SYNC FIX
     function syncTermMarksFromStudentRecords() {
       if (!allTermMarks["HALF_YEARLY"]) allTermMarks["HALF_YEARLY"] = {};
       if (!allTermMarks["YEARLY"]) allTermMarks["YEARLY"] = {};
@@ -6475,7 +6468,7 @@ Capital of Rajasthan is? | Jodhpur | Udaipur | Jaipur | Ajmer | C</textarea>
       await showCustomAlert(`✅ ${term === "HALF_YEARLY" ? "Half-Yearly" : "Yearly"} Marks saved & published for ${savedCount} students in ${cls}!`, "Published", "SUCCESS");
     };
 
-    // --- 3. 100% WORKING PDF ENGINE (CHROME + ANDROID APK + PRINT FALLBACK) ---
+    // 3. VERSION 10 APK NATIVE PDF ENGINE (FOR ALL 9 PDF TYPES)
     async function preparePdfImagesSafely(container) {
       if (!container) return;
       const imgs = Array.from(container.querySelectorAll("img"));
@@ -6485,21 +6478,13 @@ Capital of Rajasthan is? | Jodhpur | Udaipur | Jaipur | Ajmer | C</textarea>
         img.setAttribute("crossorigin", "anonymous");
         img.crossOrigin = "anonymous";
         if (img.complete && img.naturalWidth > 0) return resolve();
-        const timer = setTimeout(() => {
-          img.style.display = "none";
-          resolve();
-        }, 2000);
+        const timer = setTimeout(() => { img.style.display = "none"; resolve(); }, 2000);
         img.onload = () => { clearTimeout(timer); resolve(); };
-        img.onerror = () => {
-          clearTimeout(timer);
-          img.style.display = "none";
-          resolve();
-        };
+        img.onerror = () => { clearTimeout(timer); img.style.display = "none"; resolve(); };
       })));
     }
 
-    // Universal PDF Runner that works on Chrome, New APK, and Old APK
-    async function runSafePdfDownload(areaEl, opt) {
+    async function runSafePdfDownload(areaEl, opt, shouldDownload = true) {
       const wrap = document.getElementById("pdfPrintWrapper");
       if (wrap) {
         wrap.classList.remove("hidden");
@@ -6512,55 +6497,31 @@ Capital of Rajasthan is? | Jodhpur | Udaipur | Jaipur | Ajmer | C</textarea>
       try {
         const worker = html2pdf().set(opt).from(areaEl);
 
-        // Case A: Native Android APK Bridge (Version 10+)
+        if (!shouldDownload) {
+          const uri = await worker.outputPdf("datauristring");
+          if (wrap) wrap.classList.add("hidden");
+          return uri.includes(",") ? uri.split(",")[1] : uri;
+        }
+
         if (window.Android && typeof window.Android.downloadBase64Pdf === "function") {
           const dataUri = await worker.outputPdf("datauristring");
           const base64Clean = dataUri.includes(",") ? dataUri.split(",")[1] : dataUri;
           window.Android.downloadBase64Pdf(base64Clean, fileName);
           if (wrap) wrap.classList.add("hidden");
-          return dataUri;
+          return base64Clean;
         }
 
-        // Case B: Older Android APK (Without downloadBase64Pdf) -> Email PDF + Open In-App Printable View
-        if (window.Android) {
-          const dataUri = await worker.outputPdf("datauristring");
-          const base64Clean = dataUri.includes(",") ? dataUri.split(",")[1] : dataUri;
-          if (loggedInStudent && loggedInStudent.email) {
-            sendOfficialEmail({
-              to: loggedInStudent.email,
-              subject: `Official PDF Document (${fileName}) - ${SCHOOL_INFO.name}`,
-              htmlBody: buildOfficialEmailTemplate({
-                heading: `Your Official PDF: ${fileName}`,
-                studentName: loggedInStudent.studentName,
-                bodyHtml: `<p>Please find your requested school PDF document (<strong>${fileName}</strong>) attached with this email.</p>`
-              }),
-              pdfBase64: base64Clean,
-              pdfFileName: fileName
-            });
-          }
-          // Try blob download in case browser supports it, and show success message
-          try { await worker.save(); } catch (e) {}
-          if (wrap) wrap.classList.add("hidden");
-          await showCustomAlert(
-            `✅ PDF Generated Successfully (${fileName})!\n\n1. A copy has also been sent to your registered Email ID (${loggedInStudent?.email || 'Email'}).\n2. Install the latest V10 APK from GitHub Actions to save PDFs directly into your phone's Downloads folder.`,
-            "PDF Ready & Emailed",
-            "SUCCESS"
-          );
-          return dataUri;
-        }
-
-        // Case C: Chrome / Standard Mobile & Desktop Browser -> Direct Download
         await worker.save();
         if (wrap) wrap.classList.add("hidden");
         return null;
       } catch (err) {
         if (wrap) wrap.classList.add("hidden");
-        await showCustomAlert(`PDF Download Error: ${err.message}`, "PDF Error", "DANGER");
+        await showCustomAlert(`PDF Error: ${err.message}`, "Error", "DANGER");
         return null;
       }
     }
 
-    // Connect all PDF buttons to runSafePdfDownload
+    // (A) ID Card PDF
     generateStudentDigitalIdCardPDF = async function(idOverride = null) {
       const stu = idOverride ? allStudents[idOverride] : loggedInStudent;
       if (!stu) return;
@@ -6595,9 +6556,10 @@ Capital of Rajasthan is? | Jodhpur | Udaipur | Jaipur | Ajmer | C</textarea>
           </div>
         </div>
       `;
-      await runSafePdfDownload(area, getSafePdfOptions(`ID_Card_${stu.masterId}.pdf`, 700));
+      await runSafePdfDownload(area, getSafePdfOptions(`ID_Card_${stu.masterId}.pdf`, 700), true);
     };
 
+    // (B) Admit Card PDF
     generateStudentAdmitCardPDF = async function(masterIdOverride = null) {
       const stu = masterIdOverride ? allStudents[masterIdOverride] : loggedInStudent;
       if (!stu) return;
@@ -6608,10 +6570,905 @@ Capital of Rajasthan is? | Jodhpur | Udaipur | Jaipur | Ajmer | C</textarea>
       const cfg = allAdmitConfigs[stu.currentClass] || { examTitle: "School Examination", shiftTime: "09:00 AM to 12:15 PM", timetableText: "" };
       const area = document.getElementById("pdfPrintArea");
       area.innerHTML = buildSingleAdmitCardSlotHTML(stu, cfg, 1);
-      await runSafePdfDownload(area, getSafePdfOptions(`Admit_Card_Roll_${stu.rollNumber || stu.masterId}.pdf`, 1122));
+      await runSafePdfDownload(area, getSafePdfOptions(`Admit_Card_Roll_${stu.rollNumber || stu.masterId}.pdf`, 1122), true);
     };
 
-    // Daily Test PDF Generator + Button in Student Portal
+    // (C) Signed Admission / Confirmation Form PDF (Fixed for Student & Admin!)
+    generateSignedAdmissionPDF = async function(appId, download = true) {
+      const schCands = (allScholarshipData && allScholarshipData.candidates) ? allScholarshipData.candidates : {};
+      const app = (loggedInStudent && (loggedInStudent.masterId === appId || loggedInStudent.appId === appId))
+        ? loggedInStudent
+        : (allAdmissions[appId] || allStudents[appId] || schCands[appId] || Object.values(allAdmissions).find(s => s.masterId === appId));
+      if (!app) return showCustomAlert("Student form record not found!", "Not Found", "DANGER");
+
+      const area = document.getElementById("pdfPrintArea");
+      const formTitle = app.appType === "SCHOLARSHIP" ? "OFFICIAL SCHOLARSHIP REGISTRATION FORM" : "OFFICIAL ADMISSION CONFIRMATION FORM";
+
+      area.innerHTML = `
+        <div style="border:3px solid #1e3a8a;padding:22px;background:#ffffff;font-family:Arial,sans-serif;box-sizing:border-box;">
+          <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:3px double #1e3a8a;padding-bottom:12px;">
+            <img src="${SCHOOL_INFO.logo}" crossorigin="anonymous" style="width:78px;height:78px;object-fit:contain;" />
+            <div style="text-align:center;flex:1;padding:0 10px;">
+              <h1 style="margin:0;font-size:21px;color:#1e3a8a;font-weight:900;">${SCHOOL_INFO.name}</h1>
+              <p style="margin:3px 0;font-size:11.5px;font-weight:bold;">${SCHOOL_INFO.subTitle}</p>
+              <p style="margin:2px 0;font-size:11px;font-weight:bold;">Helpline: ${SCHOOL_INFO.helpline}</p>
+              <span style="display:inline-block;margin-top:5px;background:#1e3a8a;color:#fff;padding:3px 14px;border-radius:12px;font-size:11px;font-weight:bold;">${formTitle} (${app.session || CURRENT_SESSION.sessionString})</span>
+            </div>
+            <img src="${app.photoBase64}" style="width:86px;height:106px;object-fit:cover;border:2px solid #000;" />
+          </div>
+          <p style="font-size:12.5px;font-weight:bold;margin:12px 0;">Application ID: ${escapeHtml(app.appId || app.masterId)} | Official ID: ${escapeHtml(app.masterId || 'APPROVED')} | Date: ${escapeHtml(app.approvedDate || new Date().toLocaleDateString('en-IN'))}</p>
+          <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;width:32%;">Student Full Name</td><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">${escapeHtml(app.studentName)}</td></tr>
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">Class</td><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">${escapeHtml(app.currentClass || app.classApplying)}</td></tr>
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">Date of Birth & Gender</td><td style="border:1px solid #94a3b8;padding:8px;">${escapeHtml(app.dob)} / ${escapeHtml(app.gender)} (${escapeHtml(app.category)})</td></tr>
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">Father's & Mother's Name</td><td style="border:1px solid #94a3b8;padding:8px;">${escapeHtml(app.fatherName)} / ${escapeHtml(app.motherName)}</td></tr>
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">Mobile Number & Email</td><td style="border:1px solid #94a3b8;padding:8px;">${escapeHtml(app.mobile)} | ${escapeHtml(app.email)}</td></tr>
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">School Bus / Prev. School</td><td style="border:1px solid #94a3b8;padding:8px;">Bus: ${escapeHtml(app.transport || 'No')} | ${escapeHtml(app.prevSchool || 'N/A')}</td></tr>
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">Permanent Address</td><td style="border:1px solid #94a3b8;padding:8px;">${escapeHtml(app.address)}</td></tr>
+          </table>
+          <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:65px;">
+            <div style="text-align:center;">
+              <img src="${app.signBase64}" style="width:120px;height:44px;object-fit:contain;border-bottom:1px solid #000;" />
+              <p style="font-size:11px;font-weight:bold;margin:4px 0 0 0;">Student / Parent Sign</p>
+            </div>
+            <div style="border:2px solid #15803d;color:#15803d;padding:6px 14px;border-radius:8px;font-weight:900;font-size:12px;">OFFICIALLY VERIFIED & APPROVED</div>
+            <div style="text-align:center;">
+              <div style="font-family:cursive;font-size:21px;color:#1e3a8a;font-weight:bold;border-bottom:1px solid #000;padding:0 16px;">R. C. Royal</div>
+              <p style="font-size:11px;font-weight:bold;margin:4px 0 0 0;">Authorized Signatory</p>
+            </div>
+          </div>
+        </div>
+      `;
+      return await runSafePdfDownload(area, getSafePdfOptions(`Official_Form_${app.masterId || app.appId}.pdf`, 1122), download);
+    };
+
+    // (D) Fee Receipt & Installments Slip PDF (Fixed for Student & Admin!)
+    generateStudentFeeReceiptPDF = async function(masterIdOverride = null) {
+      const stu = masterIdOverride ? allStudents[masterIdOverride] : loggedInStudent;
+      if (!stu) return;
+      const f = getStudentFeeSummary(stu);
+      const lastInst = f.installments.length > 0 ? f.installments[f.installments.length - 1] : null;
+      const receiptNo = lastInst ? lastInst.receiptNo : `RCP-${CURRENT_SESSION.yearPrefix}-${stu.masterId.slice(-4)}`;
+      const receiptDate = lastInst ? lastInst.date : (stu.lastFeePaymentDate || new Date().toLocaleDateString("en-IN"));
+      const lastPaidAmt = lastInst ? lastInst.amount : f.paid;
+
+      const area = document.getElementById("pdfPrintArea");
+      const qr = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(`GSSS-FEE|${receiptNo}|${stu.masterId}|PrevDue:${f.prevDue}|Paid:${f.paid}|TotalDue:${f.totalDue}`)}`;
+
+      area.innerHTML = `
+        <div style="border:3px solid #1e3a8a;padding:20px;background:#ffffff;font-family:Arial,sans-serif;box-sizing:border-box;">
+          <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:3px double #1e3a8a;padding-bottom:10px;">
+            <img src="${SCHOOL_INFO.logo}" crossorigin="anonymous" style="width:68px;height:68px;object-fit:contain;" />
+            <div style="text-align:center;flex:1;padding:0 10px;">
+              <h1 style="margin:0;font-size:20px;color:#1e3a8a;font-weight:900;">${SCHOOL_INFO.name}</h1>
+              <p style="margin:3px 0;font-size:11px;font-weight:bold;">${SCHOOL_INFO.subTitle}</p>
+              <p style="margin:2px 0;font-size:10.5px;font-weight:bold;">Helpline: ${SCHOOL_INFO.helpline}</p>
+              <span style="display:inline-block;margin-top:4px;background:#15803d;color:#fff;padding:3px 14px;border-radius:12px;font-size:11px;font-weight:bold;">
+                OFFICIAL FEE RECEIPT & INSTALLMENT SLIP (${CURRENT_SESSION.sessionString})
+              </span>
+            </div>
+            <img src="${qr}" crossorigin="anonymous" style="width:68px;height:68px;" />
+          </div>
+
+          ${f.prevDue > 0 ? `<div style="margin:10px 0;padding:8px 12px;background:#fef2f2;border:2px solid #dc2626;border-radius:8px;color:#991b1b;font-size:12px;font-weight:900;text-align:center;">⚠️ PREVIOUS SESSION ARREARS / BAKI FEES INCLUDED: ₹${f.prevDue}</div>` : ""}
+
+          <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:bold;margin:10px 0;background:#f8fafc;padding:7px 10px;border:1px solid #cbd5e1;border-radius:6px;">
+            <div>Receipt No: <span style="color:#1e3a8a;">${escapeHtml(receiptNo)}</span></div>
+            <div>Master ID: <span style="color:#1d4ed8;">${escapeHtml(stu.masterId)}</span></div>
+            <div>Date: <span>${escapeHtml(receiptDate)}</span></div>
+          </div>
+
+          <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px;">
+            <tr>
+              <td style="border:1px solid #94a3b8;padding:7px;font-weight:bold;width:22%;">Student Name</td>
+              <td style="border:1px solid #94a3b8;padding:7px;font-weight:bold;width:28%;">${escapeHtml(stu.studentName)}</td>
+              <td style="border:1px solid #94a3b8;padding:7px;font-weight:bold;width:22%;">Class & Roll No</td>
+              <td style="border:1px solid #94a3b8;padding:7px;font-weight:bold;width:28%;">${escapeHtml(stu.currentClass)} (Roll: ${escapeHtml(stu.rollNumber || 'N/A')})</td>
+            </tr>
+            <tr>
+              <td style="border:1px solid #94a3b8;padding:7px;font-weight:bold;">Father's Name</td>
+              <td style="border:1px solid #94a3b8;padding:7px;">${escapeHtml(stu.fatherName)}</td>
+              <td style="border:1px solid #94a3b8;padding:7px;font-weight:bold;">Current Installment Paid</td>
+              <td style="border:1px solid #94a3b8;padding:7px;font-weight:900;color:#15803d;">₹${lastPaidAmt}</td>
+            </tr>
+          </table>
+
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center;margin-bottom:12px;font-size:11.5px;">
+            <div style="border:1.5px solid #d97706;background:#fffbeb;padding:8px;border-radius:8px;"><div style="color:#92400e;font-weight:bold;">Previous Year Due</div><div style="font-size:15px;font-weight:900;color:#b45309;">₹${f.prevDue}</div></div>
+            <div style="border:1.5px solid #475569;background:#f8fafc;padding:8px;border-radius:8px;"><div style="color:#334155;font-weight:bold;">Current Session Fee</div><div style="font-size:15px;font-weight:900;color:#0f172a;">₹${f.currentTotal}</div></div>
+            <div style="border:1.5px solid #16a34a;background:#f0fdf4;padding:8px;border-radius:8px;"><div style="color:#166534;font-weight:bold;">Total Deposited</div><div style="font-size:15px;font-weight:900;color:#15803d;">₹${f.paid}</div></div>
+            <div style="border:1.5px solid #dc2626;background:#fef2f2;padding:8px;border-radius:8px;"><div style="color:#991b1b;font-weight:bold;">Net Balance Due</div><div style="font-size:15px;font-weight:900;color:#dc2626;">₹${f.totalDue}</div></div>
+          </div>
+
+          <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:18px;">
+            <thead style="background:#0f172a;color:#ffffff;">
+              <tr><th style="border:1px solid #475569;padding:5px;">Inst. No</th><th style="border:1px solid #475569;padding:5px;text-align:left;">Receipt No</th><th style="border:1px solid #475569;padding:5px;text-align:left;">Date</th><th style="border:1px solid #475569;padding:5px;text-align:left;">Session</th><th style="border:1px solid #475569;padding:5px;text-align:right;">Amount (₹)</th></tr>
+            </thead>
+            <tbody>
+              ${f.installments.length > 0 ? f.installments.map((inst, i) => `<tr><td style="border:1px solid #94a3b8;padding:5px;text-align:center;font-weight:bold;">#${i + 1}</td><td style="border:1px solid #94a3b8;padding:5px;font-weight:bold;">${escapeHtml(inst.receiptNo)}</td><td style="border:1px solid #94a3b8;padding:5px;">${escapeHtml(inst.date)}</td><td style="border:1px solid #94a3b8;padding:5px;">${escapeHtml(inst.session || CURRENT_SESSION.sessionString)}</td><td style="border:1px solid #94a3b8;padding:5px;text-align:right;font-weight:bold;color:#15803d;">₹${inst.amount}</td></tr>`).join("") : `<tr><td colspan="5" style="border:1px solid #94a3b8;padding:6px;text-align:center;">No installment paid in current session yet.</td>
+          const dataUri = await worker.outputPdf("datauristring");
+          const base64Clean = dataUri.includes(",") ? dataUri.split(",")[1] : dataUri;
+          window.Android.downloadBase64Pdf(base64Clean, fileName);
+          if (wrap) wrap.classList.add("hidden");
+          return base64Clean;
+        }
+
+        await worker.save();
+        if (wrap) wrap.classList.add("hidden");
+        return null;
+      } catch (err) {
+        if (wrap) wrap.classList.add("hidden");
+        await showCustomAlert(`PDF Error: ${err.message}`, "Error", "DANGER");
+        return null;
+      }
+    }
+
+    // (A) ID Card PDF
+    generateStudentDigitalIdCardPDF = async function(idOverride = null) {
+      const stu = idOverride ? allStudents[idOverride] : loggedInStudent;
+      if (!stu) return;
+      const area = document.getElementById("pdfPrintArea");
+      const qr = `https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=${encodeURIComponent(`GSSS|${stu.masterId}|Roll:${stu.rollNumber || 'N/A'}|${stu.studentName}`)}`;
+      area.innerHTML = `
+        <div style="padding:30px;display:flex;justify-content:center;font-family:Arial,sans-serif;background:#ffffff;">
+          <div style="width:350px;border:3px solid #1e3a8a;border-radius:16px;overflow:hidden;background:#fff;">
+            <div style="background:#1e3a8a;color:#fff;padding:14px;text-align:center;">
+              <img src="${SCHOOL_INFO.logo}" crossorigin="anonymous" style="width:50px;height:50px;border-radius:50%;background:#fff;padding:2px;margin:0 auto;" />
+              <h3 style="margin:6px 0 2px 0;font-size:14px;font-weight:900;">${SCHOOL_INFO.name}</h3>
+              <p style="margin:0;font-size:10px;color:#bfdbfe;">Bhadasar Road, Dhankoli | ${SCHOOL_INFO.helpline}</p>
+            </div>
+            <div style="padding:16px;text-align:center;">
+              <img src="${stu.photoBase64}" style="width:90px;height:110px;object-fit:cover;border:2px solid #1e3a8a;border-radius:10px;margin:0 auto;" />
+              <h4 style="margin:8px 0 2px 0;font-size:17px;font-weight:900;">${escapeHtml(stu.studentName)}</h4>
+              <p style="margin:0 0 10px 0;font-size:12px;color:#1d4ed8;font-weight:bold;">ID: ${escapeHtml(stu.masterId)} • Roll: ${escapeHtml(stu.rollNumber || 'N/A')}</p>
+              <div style="text-align:left;font-size:12px;line-height:1.8;">
+                <div><strong>Class:</strong> ${escapeHtml(stu.currentClass)}</div>
+                <div><strong>Father:</strong> ${escapeHtml(stu.fatherName)}</div>
+                <div><strong>DOB:</strong> ${escapeHtml(stu.dob)}</div>
+                <div><strong>Mobile:</strong> ${escapeHtml(stu.mobile)}</div>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:1px dashed #cbd5e1;">
+                <img src="${qr}" crossorigin="anonymous" style="width:60px;height:60px;" />
+                <div style="text-align:right;">
+                  <div style="font-family:cursive;font-size:18px;color:#1e3a8a;font-weight:bold;">R. C. Royal</div>
+                  <div style="font-size:10px;font-weight:bold;">Authorized Signatory</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      await runSafePdfDownload(area, getSafePdfOptions(`ID_Card_${stu.masterId}.pdf`, 700), true);
+    };
+
+    // (B) Admit Card PDF
+    generateStudentAdmitCardPDF = async function(masterIdOverride = null) {
+      const stu = masterIdOverride ? allStudents[masterIdOverride] : loggedInStudent;
+      if (!stu) return;
+      if (!masterIdOverride && getStudentEffectiveFeeLockMode(stu) !== "OPEN") {
+        triggerPhoneVibrationAndSound();
+        return showCustomAlert("🔒 Admit Card PDF Locked due to pending fee due!", "Fee Due Lock", "DANGER");
+      }
+      const cfg = allAdmitConfigs[stu.currentClass] || { examTitle: "School Examination", shiftTime: "09:00 AM to 12:15 PM", timetableText: "" };
+      const area = document.getElementById("pdfPrintArea");
+      area.innerHTML = buildSingleAdmitCardSlotHTML(stu, cfg, 1);
+      await runSafePdfDownload(area, getSafePdfOptions(`Admit_Card_Roll_${stu.rollNumber || stu.masterId}.pdf`, 1122), true);
+    };
+
+    // (C) Signed Admission / Confirmation Form PDF (Fixed for Student & Admin!)
+    generateSignedAdmissionPDF = async function(appId, download = true) {
+      const schCands = (allScholarshipData && allScholarshipData.candidates) ? allScholarshipData.candidates : {};
+      const app = (loggedInStudent && (loggedInStudent.masterId === appId || loggedInStudent.appId === appId))
+        ? loggedInStudent
+        : (allAdmissions[appId] || allStudents[appId] || schCands[appId] || Object.values(allAdmissions).find(s => s.masterId === appId));
+      if (!app) return showCustomAlert("Student form record not found!", "Not Found", "DANGER");
+
+      const area = document.getElementById("pdfPrintArea");
+      const formTitle = app.appType === "SCHOLARSHIP" ? "OFFICIAL SCHOLARSHIP REGISTRATION FORM" : "OFFICIAL ADMISSION CONFIRMATION FORM";
+
+      area.innerHTML = `
+        <div style="border:3px solid #1e3a8a;padding:22px;background:#ffffff;font-family:Arial,sans-serif;box-sizing:border-box;">
+          <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:3px double #1e3a8a;padding-bottom:12px;">
+            <img src="${SCHOOL_INFO.logo}" crossorigin="anonymous" style="width:78px;height:78px;object-fit:contain;" />
+            <div style="text-align:center;flex:1;padding:0 10px;">
+              <h1 style="margin:0;font-size:21px;color:#1e3a8a;font-weight:900;">${SCHOOL_INFO.name}</h1>
+              <p style="margin:3px 0;font-size:11.5px;font-weight:bold;">${SCHOOL_INFO.subTitle}</p>
+              <p style="margin:2px 0;font-size:11px;font-weight:bold;">Helpline: ${SCHOOL_INFO.helpline}</p>
+              <span style="display:inline-block;margin-top:5px;background:#1e3a8a;color:#fff;padding:3px 14px;border-radius:12px;font-size:11px;font-weight:bold;">${formTitle} (${app.session || CURRENT_SESSION.sessionString})</span>
+            </div>
+            <img src="${app.photoBase64}" style="width:86px;height:106px;object-fit:cover;border:2px solid #000;" />
+          </div>
+          <p style="font-size:12.5px;font-weight:bold;margin:12px 0;">Application ID: ${escapeHtml(app.appId || app.masterId)} | Official ID: ${escapeHtml(app.masterId || 'APPROVED')} | Date: ${escapeHtml(app.approvedDate || new Date().toLocaleDateString('en-IN'))}</p>
+          <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;width:32%;">Student Full Name</td><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">${escapeHtml(app.studentName)}</td></tr>
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">Class</td><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">${escapeHtml(app.currentClass || app.classApplying)}</td></tr>
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">Date of Birth & Gender</td><td style="border:1px solid #94a3b8;padding:8px;">${escapeHtml(app.dob)} / ${escapeHtml(app.gender)} (${escapeHtml(app.category)})</td></tr>
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">Father's & Mother's Name</td><td style="border:1px solid #94a3b8;padding:8px;">${escapeHtml(app.fatherName)} / ${escapeHtml(app.motherName)}</td></tr>
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">Mobile Number & Email</td><td style="border:1px solid #94a3b8;padding:8px;">${escapeHtml(app.mobile)} | ${escapeHtml(app.email)}</td></tr>
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">School Bus / Prev. School</td><td style="border:1px solid #94a3b8;padding:8px;">Bus: ${escapeHtml(app.transport || 'No')} | ${escapeHtml(app.prevSchool || 'N/A')}</td></tr>
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">Permanent Address</td><td style="border:1px solid #94a3b8;padding:8px;">${escapeHtml(app.address)}</td></tr>
+          </table>
+          <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:65px;">
+            <div style="text-align:center;">
+              <img src="${app.signBase64}" style="width:120px;height:44px;object-fit:contain;border-bottom:1px solid #000;" />
+              <p style="font-size:11px;font-weight:bold;margin:4px 0 0 0;">Student / Parent Sign</p>
+            </div>
+            <div style="border:2px solid #15803d;color:#15803d;padding:6px 14px;border-radius:8px;font-weight:900;font-size:12px;">OFFICIALLY VERIFIED & APPROVED</div>
+            <div style="text-align:center;">
+              <div style="font-family:cursive;font-size:21px;color:#1e3a8a;font-weight:bold;border-bottom:1px solid #000;padding:0 16px;">R. C. Royal</div>
+              <p style="font-size:11px;font-weight:bold;margin:4px 0 0 0;">Authorized Signatory</p>
+            </div>
+          </div>
+        </div>
+      `;
+      return await runSafePdfDownload(area, getSafePdfOptions(`Official_Form_${app.masterId || app.appId}.pdf`, 1122), download);
+    };
+
+    // (D) Fee Receipt & Installments Slip PDF (Fixed for Student & Admin!)
+    generateStudentFeeReceiptPDF = async function(masterIdOverride = null) {
+      const stu = masterIdOverride ? allStudents[masterIdOverride] : loggedInStudent;
+      if (!stu) return;
+      const f = getStudentFeeSummary(stu);
+      const lastInst = f.installments.length > 0 ? f.installments[f.installments.length - 1] : null;
+      const receiptNo = lastInst ? lastInst.receiptNo : `RCP-${CURRENT_SESSION.yearPrefix}-${stu.masterId.slice(-4)}`;
+      const receiptDate = lastInst ? lastInst.date : (stu.lastFeePaymentDate || new Date().toLocaleDateString("en-IN"));
+      const lastPaidAmt = lastInst ? lastInst.amount : f.paid;
+
+      const area = document.getElementById("pdfPrintArea");
+      const qr = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(`GSSS-FEE|${receiptNo}|${stu.masterId}|PrevDue:${f.prevDue}|Paid:${f.paid}|TotalDue:${f.totalDue}`)}`;
+
+      area.innerHTML = `
+        <div style="border:3px solid #1e3a8a;padding:20px;background:#ffffff;font-family:Arial,sans-serif;box-sizing:border-box;">
+          <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:3px double #1e3a8a;padding-bottom:10px;">
+            <img src="${SCHOOL_INFO.logo}" crossorigin="anonymous" style="width:68px;height:68px;object-fit:contain;" />
+            <div style="text-align:center;flex:1;padding:0 10px;">
+              <h1 style="margin:0;font-size:20px;color:#1e3a8a;font-weight:900;">${SCHOOL_INFO.name}</h1>
+              <p style="margin:3px 0;font-size:11px;font-weight:bold;">${SCHOOL_INFO.subTitle}</p>
+              <p style="margin:2px 0;font-size:10.5px;font-weight:bold;">Helpline: ${SCHOOL_INFO.helpline}</p>
+              <span style="display:inline-block;margin-top:4px;background:#15803d;color:#fff;padding:3px 14px;border-radius:12px;font-size:11px;font-weight:bold;">
+                OFFICIAL FEE RECEIPT & INSTALLMENT SLIP (${CURRENT_SESSION.sessionString})
+              </span>
+            </div>
+            <img src="${qr}" crossorigin="anonymous" style="width:68px;height:68px;" />
+          </div>
+
+          ${f.prevDue > 0 ? `<div style="margin:10px 0;padding:8px 12px;background:#fef2f2;border:2px solid #dc2626;border-radius:8px;color:#991b1b;font-size:12px;font-weight:900;text-align:center;">⚠️ PREVIOUS SESSION ARREARS / BAKI FEES INCLUDED: ₹${f.prevDue}</div>` : ""}
+
+          <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:bold;margin:10px 0;background:#f8fafc;padding:7px 10px;border:1px solid #cbd5e1;border-radius:6px;">
+            <div>Receipt No: <span style="color:#1e3a8a;">${escapeHtml(receiptNo)}</span></div>
+          const dataUri = await worker.outputPdf("datauristring");
+          const base64Clean = dataUri.includes(",") ? dataUri.split(",")[1] : dataUri;
+          window.Android.downloadBase64Pdf(base64Clean, fileName);
+          if (wrap) wrap.classList.add("hidden");
+          return base64Clean;
+        }
+
+        await worker.save();
+        if (wrap) wrap.classList.add("hidden");
+        return null;
+      } catch (err) {
+        if (wrap) wrap.classList.add("hidden");
+        await showCustomAlert(`PDF Error: ${err.message}`, "Error", "DANGER");
+        return null;
+      }
+    }
+
+    // (A) ID Card PDF
+    generateStudentDigitalIdCardPDF = async function(idOverride = null) {
+      const stu = idOverride ? allStudents[idOverride] : loggedInStudent;
+      if (!stu) return;
+      const area = document.getElementById("pdfPrintArea");
+      const qr = `https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=${encodeURIComponent(`GSSS|${stu.masterId}|Roll:${stu.rollNumber || 'N/A'}|${stu.studentName}`)}`;
+      area.innerHTML = `
+        <div style="padding:30px;display:flex;justify-content:center;font-family:Arial,sans-serif;background:#ffffff;">
+          <div style="width:350px;border:3px solid #1e3a8a;border-radius:16px;overflow:hidden;background:#fff;">
+            <div style="background:#1e3a8a;color:#fff;padding:14px;text-align:center;">
+              <img src="${SCHOOL_INFO.logo}" crossorigin="anonymous" style="width:50px;height:50px;border-radius:50%;background:#fff;padding:2px;margin:0 auto;" />
+              <h3 style="margin:6px 0 2px 0;font-size:14px;font-weight:900;">${SCHOOL_INFO.name}</h3>
+              <p style="margin:0;font-size:10px;color:#bfdbfe;">Bhadasar Road, Dhankoli | ${SCHOOL_INFO.helpline}</p>
+            </div>
+            <div style="padding:16px;text-align:center;">
+              <img src="${stu.photoBase64}" style="width:90px;height:110px;object-fit:cover;border:2px solid #1e3a8a;border-radius:10px;margin:0 auto;" />
+              <h4 style="margin:8px 0 2px 0;font-size:17px;font-weight:900;">${escapeHtml(stu.studentName)}</h4>
+              <p style="margin:0 0 10px 0;font-size:12px;color:#1d4ed8;font-weight:bold;">ID: ${escapeHtml(stu.masterId)} • Roll: ${escapeHtml(stu.rollNumber || 'N/A')}</p>
+              <div style="text-align:left;font-size:12px;line-height:1.8;">
+                <div><strong>Class:</strong> ${escapeHtml(stu.currentClass)}</div>
+                <div><strong>Father:</strong> ${escapeHtml(stu.fatherName)}</div>
+                <div><strong>DOB:</strong> ${escapeHtml(stu.dob)}</div>
+                <div><strong>Mobile:</strong> ${escapeHtml(stu.mobile)}</div>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:1px dashed #cbd5e1;">
+                <img src="${qr}" crossorigin="anonymous" style="width:60px;height:60px;" />
+                <div style="text-align:right;">
+                  <div style="font-family:cursive;font-size:18px;color:#1e3a8a;font-weight:bold;">R. C. Royal</div>
+                  <div style="font-size:10px;font-weight:bold;">Authorized Signatory</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      await runSafePdfDownload(area, getSafePdfOptions(`ID_Card_${stu.masterId}.pdf`, 700), true);
+    };
+
+    // (B) Admit Card PDF
+    generateStudentAdmitCardPDF = async function(masterIdOverride = null) {
+      const stu = masterIdOverride ? allStudents[masterIdOverride] : loggedInStudent;
+      if (!stu) return;
+      if (!masterIdOverride && getStudentEffectiveFeeLockMode(stu) !== "OPEN") {
+        triggerPhoneVibrationAndSound();
+        return showCustomAlert("🔒 Admit Card PDF Locked due to pending fee due!", "Fee Due Lock", "DANGER");
+      }
+      const cfg = allAdmitConfigs[stu.currentClass] || { examTitle: "School Examination", shiftTime: "09:00 AM to 12:15 PM", timetableText: "" };
+      const area = document.getElementById("pdfPrintArea");
+      area.innerHTML = buildSingleAdmitCardSlotHTML(stu, cfg, 1);
+      await runSafePdfDownload(area, getSafePdfOptions(`Admit_Card_Roll_${stu.rollNumber || stu.masterId}.pdf`, 1122), true);
+    };
+
+    // (C) Signed Admission / Confirmation Form PDF (Fixed for Student & Admin!)
+    generateSignedAdmissionPDF = async function(appId, download = true) {
+      const schCands = (allScholarshipData && allScholarshipData.candidates) ? allScholarshipData.candidates : {};
+      const app = (loggedInStudent && (loggedInStudent.masterId === appId || loggedInStudent.appId === appId))
+        ? loggedInStudent
+        : (allAdmissions[appId] || allStudents[appId] || schCands[appId] || Object.values(allAdmissions).find(s => s.masterId === appId));
+      if (!app) return showCustomAlert("Student form record not found!", "Not Found", "DANGER");
+
+      const area = document.getElementById("pdfPrintArea");
+      const formTitle = app.appType === "SCHOLARSHIP" ? "OFFICIAL SCHOLARSHIP REGISTRATION FORM" : "OFFICIAL ADMISSION CONFIRMATION FORM";
+
+      area.innerHTML = `
+        <div style="border:3px solid #1e3a8a;padding:22px;background:#ffffff;font-family:Arial,sans-serif;box-sizing:border-box;">
+          <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:3px double #1e3a8a;padding-bottom:12px;">
+            <img src="${SCHOOL_INFO.logo}" crossorigin="anonymous" style="width:78px;height:78px;object-fit:contain;" />
+            <div style="text-align:center;flex:1;padding:0 10px;">
+              <h1 style="margin:0;font-size:21px;color:#1e3a8a;font-weight:900;">${SCHOOL_INFO.name}</h1>
+              <p style="margin:3px 0;font-size:11.5px;font-weight:bold;">${SCHOOL_INFO.subTitle}</p>
+              <p style="margin:2px 0;font-size:11px;font-weight:bold;">Helpline: ${SCHOOL_INFO.helpline}</p>
+              <span style="display:inline-block;margin-top:5px;background:#1e3a8a;color:#fff;padding:3px 14px;border-radius:12px;font-size:11px;font-weight:bold;">${formTitle} (${app.session || CURRENT_SESSION.sessionString})</span>
+            </div>
+            <img src="${app.photoBase64}" style="width:86px;height:106px;object-fit:cover;border:2px solid #000;" />
+          </div>
+          <p style="font-size:12.5px;font-weight:bold;margin:12px 0;">Application ID: ${escapeHtml(app.appId || app.masterId)} | Official ID: ${escapeHtml(app.masterId || 'APPROVED')} | Date: ${escapeHtml(app.approvedDate || new Date().toLocaleDateString('en-IN'))}</p>
+          <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;width:32%;">Student Full Name</td><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">${escapeHtml(app.studentName)}</td></tr>
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">Class</td><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">${escapeHtml(app.currentClass || app.classApplying)}</td></tr>
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">Date of Birth & Gender</td><td style="border:1px solid #94a3b8;padding:8px;">${escapeHtml(app.dob)} / ${escapeHtml(app.gender)} (${escapeHtml(app.category)})</td></tr>
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">Father's & Mother's Name</td><td style="border:1px solid #94a3b8;padding:8px;">${escapeHtml(app.fatherName)} / ${escapeHtml(app.motherName)}</td></tr>
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">Mobile Number & Email</td><td style="border:1px solid #94a3b8;padding:8px;">${escapeHtml(app.mobile)} | ${escapeHtml(app.email)}</td></tr>
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">School Bus / Prev. School</td><td style="border:1px solid #94a3b8;padding:8px;">Bus: ${escapeHtml(app.transport || 'No')} | ${escapeHtml(app.prevSchool || 'N/A')}</td></tr>
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">Permanent Address</td><td style="border:1px solid #94a3b8;padding:8px;">${escapeHtml(app.address)}</td></tr>
+          </table>
+          <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:65px;">
+            <div style="text-align:center;">
+              <img src="${app.signBase64}" style="width:120px;height:44px;object-fit:contain;border-bottom:1px solid #000;" />
+              <p style="font-size:11px;font-weight:bold;margin:4px 0 0 0;">Student / Parent Sign</p>
+            </div>
+            <div style="border:2px solid #15803d;color:#15803d;padding:6px 14px;border-radius:8px;font-weight:900;font-size:12px;">OFFICIALLY VERIFIED & APPROVED</div>
+            <div style="text-align:center;">
+              <div style="font-family:cursive;font-size:21px;color:#1e3a8a;font-weight:bold;border-bottom:1px solid #000;padding:0 16px;">R. C. Royal</div>
+              <p style="font-size:11px;font-weight:bold;margin:4px 0 0 0;">Authorized Signatory</p>
+            </div>
+          </div>
+        </div>
+      `;
+      return await runSafePdfDownload(area, getSafePdfOptions(`Official_Form_${app.masterId || app.appId}.pdf`, 1122), download);
+    };
+
+    // (D) Fee Receipt & Installments Slip PDF (Fixed for Student & Admin!)
+    generateStudentFeeReceiptPDF = async function(masterIdOverride = null) {
+      const stu = masterIdOverride ? allStudents[masterIdOverride] : loggedInStudent;
+      if (!stu) return;
+      const f = getStudentFeeSummary(stu);
+      const lastInst = f.installments.length > 0 ? f.installments[f.installments.length - 1] : null;
+      const receiptNo = lastInst ? lastInst.receiptNo : `RCP-${CURRENT_SESSION.yearPrefix}-${stu.masterId.slice(-4)}`;
+      const receiptDate = lastInst ? lastInst.date : (stu.lastFeePaymentDate || new Date().toLocaleDateString("en-IN"));
+      const lastPaidAmt = lastInst ? lastInst.amount : f.paid;
+
+      const area = document.getElementById("pdfPrintArea");
+      const qr = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(`GSSS-FEE|${receiptNo}|${stu.masterId}|PrevDue:${f.prevDue}|Paid:${f.paid}|TotalDue:${f.totalDue}`)}`;
+
+      area.innerHTML = `
+        <div style="border:3px solid #1e3a8a;padding:20px;background:#ffffff;font-family:Arial,sans-serif;box-sizing:border-box;">
+          <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:3px double #1e3a8a;padding-bottom:10px;">
+            <img src="${SCHOOL_INFO.logo}" crossorigin="anonymous" style="width:68px;height:68px;object-fit:contain;" />
+            <div style="text-align:center;flex:1;padding:0 10px;">
+              <h1 style="margin:0;font-size:20px;color:#1e3a8a;font-weight:900;">${SCHOOL_INFO.name}</h1>
+              <p style="margin:3px 0;font-size:11px;font-weight:bold;">${SCHOOL_INFO.subTitle}</p>
+              <p style="margin:2px 0;font-size:10.5px;font-weight:bold;">Helpline: ${SCHOOL_INFO.helpline}</p>
+              <span style="display:inline-block;margin-top:4px;background:#15803d;color:#fff;padding:3px 14px;border-radius:12px;font-size:11px;font-weight:bold;">
+                OFFICIAL FEE RECEIPT & INSTALLMENT SLIP (${CURRENT_SESSION.sessionString})
+              </span>
+            </div>
+            <img src="${qr}" crossorigin="anonymous" style="width:68px;height:68px;" />
+          </div>
+
+          ${f.prevDue > 0 ? `<div style="margin:10px 0;padding:8px 12px;background:#fef2f2;border:2px solid #dc2626;border-radius:8px;color:#991b1b;font-size:12px;font-weight:900;text-align:center;">⚠️ PREVIOUS SESSION ARREARS / BAKI FEES INCLUDED: ₹${f.prevDue}</div>` : ""}
+
+          <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:bold;margin:10px 0;background:#f8fafc;padding:7px 10px;border:1px solid #cbd5e1;border-radius:6px;">
+            <div>Receipt No: <span style="color:#1e3a8a;">${escapeHtml(receiptNo)}</span></div>
+            <div>Master ID: <span style="color:#1d4ed8;">${escapeHtml(stu.masterId)}</span></div>
+            <div>Date: <span>${escapeHtml(receiptDate)}</span></div>
+          </div>
+
+          <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px;">
+            <tr>
+              <td style="border:1px solid #94a3b8;padding:7px;font-weight:bold;width:22%;">Student Name</td>
+              <td style="border:1px solid #94a3b8;padding:7px;font-weight:bold;width:28%;">${escapeHtml(stu.studentName)}</td>
+              <td style="border:1px solid #94a3b8;padding:7px;font-weight:bold;width:22%;">Class & Roll No</td>
+              <td style="border:1px solid #94a3b8;padding:7px;font-weight:bold;width:28%;">${escapeHtml(stu.currentClass)} (Roll: ${escapeHtml(stu.rollNumber || 'N/A')})</td>
+            </tr>
+            <tr>
+              <td style="border:1px solid #94a3b8;padding:7px;font-weight:bold;">Father's Name</td>
+              <td style="border:1px solid #94a3b8;padding:7px;">${escapeHtml(stu.fatherName)}</td>
+              <td style="border:1px solid #94a3b8;padding:7px;font-weight:bold;">Current Installment Paid</td>
+              <td style="border:1px solid #94a3b8;padding:7px;font-weight:900;color:#15803d;">₹${lastPaidAmt}</td>
+            </tr>
+          </table>
+
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center;margin-bottom:12px;font-size:11.5px;">
+            <div style="border:1.5px solid #d97706;background:#fffbeb;padding:8px;border-radius:8px;"><div style="color:#92400e;font-weight:bold;">Previous Year Due</div><div style="font-size:15px;font-weight:900;color:#b45309;">₹${f.prevDue}</div></div>
+            <div style="border:1.5px solid #475569;background:#f8fafc;padding:8px;border-radius:8px;"><div style="color:#334155;font-weight:bold;">Current Session Fee</div><div style="font-size:15px;font-weight:900;color:#0f172a;">₹${f.currentTotal}</div></div>
+            <div style="border:1.5px solid #16a34a;background:#f0fdf4;padding:8px;border-radius:8px;"><div style="color:#166534;font-weight:bold;">Total Deposited</div><div style="font-size:15px;font-weight:900;color:#15803d;">₹${f.paid}</div></div>
+            <div style="border:1.5px solid #dc2626;background:#fef2f2;padding:8px;border-radius:8px;"><div style="color:#991b1b;font-weight:bold;">Net Balance Due</div><div style="font-size:15px;font-weight:900;color:#dc2626;">₹${f.totalDue}</div></div>
+          </div>
+
+          <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:18px;">
+            <thead style="background:#0f172a;color:#ffffff;">
+              <tr><th style="border:1px solid #475569;padding:5px;">Inst. No</th><th style="border:1px solid #475569;padding:5px;text-align:left;">Receipt No</th><th style="border:1px solid #475569;padding:5px;text-align:left;">Date</th><th style="border:1px solid #475569;padding:5px;text-align:left;">Session</th><th style="border:1px solid #475569;padding:5px;text-align:right;">Amount (₹)</th></tr>
+            </thead>
+            <tbody>
+              ${f.installments.length > 0 ? f.installments.map((inst, i) => `<tr><td style="border:1px solid #94a3b8;padding:5px;text-align:center;font-weight:bold;">#${i + 1}</td><td style="border:1px solid #94a3b8;padding:5px;font-weight:bold;">${escapeHtml(inst.receiptNo)}</td><td style="border:1px solid #94a3b8;padding:5px;">${escapeHtml(inst.date)}</td><td style="border:1px solid #94a3b8;padding:5px;">${escapeHtml(inst.session || CURRENT_SESSION.sessionString)}</td><td style="border:1px solid #94a3b8;padding:5px;text-align:right;font-weight:bold;color:#15803d;">₹${inst.amount}</td></tr>`).join("") : `<tr><td colspan="5" style="border:1px solid #94a3b8;padding:6px;text-align:center;">No installment paid in current session yet.</td></tr>`}
+            </tbody>
+          </table>
+
+          <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:24px;">
+            <div style="font-size:10.5px;color:#334155;font-weight:bold;">● Total Payable: ₹${f.netPayable} | Paid: ₹${f.paid} | Pending Due: ₹${f.totalDue}</div>
+            <div style="text-align:center;">
+              <div style="font-family:cursive;font-size:19px;color:#1e3a8a;font-weight:bold;border-bottom:1px solid #000;padding:0 16px;">R. C. Royal</div>
+              <p style="font-size:10.5px;font-weight:bold;margin:3px 0 0 0;">Authorized Signatory</p>
+            </div>
+          </div>
+        </div>
+      `;
+      await runSafePdfDownload(area, getSafePdfOptions(`Fee_Receipt_${stu.masterId}.pdf`, 880), true);
+    };
+
+    // (E) Half-Yearly Exam Marksheet PDF (Fixed for Student & Admin!)
+    generateStudentHalfYearlyResultPDF = async function(masterIdOverride = null) {
+      syncTermMarksFromStudentRecords();
+      const stu = masterIdOverride ? allStudents[masterIdOverride] : loggedInStudent;
+      if (!stu || stu.isScholarshipOnly) {
+        return showCustomAlert("Half-Yearly Marksheet is only available for enrolled school students.", "Locked", "DANGER");
+      }
+      const cls = stu.currentClass;
+      const subs = getSubjectsForClass(cls);
+      const hyRec = (allTermMarks["HALF_YEARLY"] && allTermMarks["HALF_YEARLY"][cls] && allTermMarks["HALF_YEARLY"][cls][stu.masterId]) || null;
+
+      if (!hyRec || !hyRec.subjectMarks) {
+        triggerPhoneVibrationAndSound();
+        return showCustomAlert(`Half-Yearly Exam marks have not been uploaded yet for ${stu.studentName} (${cls}).`, "Result Pending", "DANGER");
+      }
+
+      const maxPerSub = Number(hyRec.maxPerSub || 100);
+      let totalObt = 0;
+      const rows = subs.map(sub => {
+        const raw = hyRec.subjectMarks[sub];
+        const num = (raw === "AB" || raw === undefined) ? 0 : (Number(raw) || 0);
+        totalObt += num;
+        const pct = maxPerSub > 0 ? ((num / maxPerSub) * 100).toFixed(1) : "0.0";
+        return {
+          sub,
+          display: raw === "AB" ? "AB" : (raw !== undefined ? num : "-"),
+          maxPerSub,
+          pct,
+          pass: num >= (maxPerSub * 0.33) && raw !== "AB"
+        };
+      });
+
+      const totalMax = maxPerSub * subs.length;
+      const overallPct = totalMax > 0 ? ((totalObt / totalMax) * 100).toFixed(2) : "0.00";
+      const area = document.getElementById("pdfPrintArea");
+      const qr = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(`GSSS-HY|${stu.masterId}|Roll:${stu.rollNumber || 'N/A'}|Marks:${totalObt}/${totalMax}|PCT:${overallPct}%`)}`;
+
+      area.innerHTML = `
+        <div style="border:3px double #7e22ce;padding:20px;background:#ffffff;font-family:Arial,sans-serif;box-sizing:border-box;">
+          <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #7e22ce;padding-bottom:10px;">
+            <img src="${SCHOOL_INFO.logo}" crossorigin="anonymous" style="width:74px;height:74px;object-fit:contain;" />
+            <div style="text-align:center;flex:1;padding:0 8px;">
+              <h1 style="margin:0;font-size:20px;color:#1e3a8a;font-weight:900;">${SCHOOL_INFO.name}</h1>
+              <p style="margin:3px 0;font-size:11px;font-weight:bold;">${SCHOOL_INFO.subTitle}</p>
+              <p style="margin:2px 0;font-size:10.5px;font-weight:bold;">Helpline: ${SCHOOL_INFO.helpline}</p>
+              <span style="display:inline-block;margin-top:5px;background:#7e22ce;color:#fff;padding:3px 14px;border-radius:12px;font-size:11px;font-weight:bold;">
+                HALF-YEARLY EXAMINATION OFFICIAL MARKSHEET (${CURRENT_SESSION.sessionString})
+              </span>
+            </div>
+            <img src="${stu.photoBase64}" style="width:80px;height:98px;object-fit:cover;border:2px solid #000;" />
+          </div>
+
+          <table style="width:100%;border-collapse:collapse;fo
+          const dataUri = await worker.outputPdf("datauristring");
+          const base64Clean = dataUri.includes(",") ? dataUri.split(",")[1] : dataUri;
+          window.Android.downloadBase64Pdf(base64Clean, fileName);
+          if (wrap) wrap.classList.add("hidden");
+          return base64Clean;
+        }
+
+        await worker.save();
+        if (wrap) wrap.classList.add("hidden");
+        return null;
+      } catch (err) {
+        if (wrap) wrap.classList.add("hidden");
+        await showCustomAlert(`PDF Error: ${err.message}`, "Error", "DANGER");
+        return null;
+      }
+    }
+
+    // (A) ID Card PDF
+    generateStudentDigitalIdCardPDF = async function(idOverride = null) {
+      const stu = idOverride ? allStudents[idOverride] : loggedInStudent;
+      if (!stu) return;
+      const area = document.getElementById("pdfPrintArea");
+      const qr = `https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=${encodeURIComponent(`GSSS|${stu.masterId}|Roll:${stu.rollNumber || 'N/A'}|${stu.studentName}`)}`;
+      area.innerHTML = `
+        <div style="padding:30px;display:flex;justify-content:center;font-family:Arial,sans-serif;background:#ffffff;">
+          <div style="width:350px;border:3px solid #1e3a8a;border-radius:16px;overflow:hidden;background:#fff;">
+            <div style="background:#1e3a8a;color:#fff;padding:14px;text-align:center;">
+              <img src="${SCHOOL_INFO.logo}" crossorigin="anonymous" style="width:50px;height:50px;border-radius:50%;background:#fff;padding:2px;margin:0 auto;" />
+              <h3 style="margin:6px 0 2px 0;font-size:14px;font-weight:900;">${SCHOOL_INFO.name}</h3>
+              <p style="margin:0;font-size:10px;color:#bfdbfe;">Bhadasar Road, Dhankoli | ${SCHOOL_INFO.helpline}</p>
+            </div>
+            <div style="padding:16px;text-align:center;">
+              <img src="${stu.photoBase64}" style="width:90px;height:110px;object-fit:cover;border:2px solid #1e3a8a;border-radius:10px;margin:0 auto;" />
+              <h4 style="margin:8px 0 2px 0;font-size:17px;font-weight:900;">${escapeHtml(stu.studentName)}</h4>
+              <p style="margin:0 0 10px 0;font-size:12px;color:#1d4ed8;font-weight:bold;">ID: ${escapeHtml(stu.masterId)} • Roll: ${escapeHtml(stu.rollNumber || 'N/A')}</p>
+              <div style="text-align:left;font-size:12px;line-height:1.8;">
+                <div><strong>Class:</strong> ${escapeHtml(stu.currentClass)}</div>
+                <div><strong>Father:</strong> ${escapeHtml(stu.fatherName)}</div>
+                <div><strong>DOB:</strong> ${escapeHtml(stu.dob)}</div>
+                <div><strong>Mobile:</strong> ${escapeHtml(stu.mobile)}</div>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:1px dashed #cbd5e1;">
+                <img src="${qr}" crossorigin="anonymous" style="width:60px;height:60px;" />
+                <div style="text-align:right;">
+                  <div style="font-family:cursive;font-size:18px;color:#1e3a8a;font-weight:bold;">R. C. Royal</div>
+                  <div style="font-size:10px;font-weight:bold;">Authorized Signatory</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      await runSafePdfDownload(area, getSafePdfOptions(`ID_Card_${stu.masterId}.pdf`, 700), true);
+    };
+
+    // (B) Admit Card PDF
+    generateStudentAdmitCardPDF = async function(masterIdOverride = null) {
+      const stu = masterIdOverride ? allStudents[masterIdOverride] : loggedInStudent;
+      if (!stu) return;
+      if (!masterIdOverride && getStudentEffectiveFeeLockMode(stu) !== "OPEN") {
+        triggerPhoneVibrationAndSound();
+        return showCustomAlert("🔒 Admit Card PDF Locked due to pending fee due!", "Fee Due Lock", "DANGER");
+      }
+      const cfg = allAdmitConfigs[stu.currentClass] || { examTitle: "School Examination", shiftTime: "09:00 AM to 12:15 PM", timetableText: "" };
+      const area = document.getElementById("pdfPrintArea");
+      area.innerHTML = buildSingleAdmitCardSlotHTML(stu, cfg, 1);
+      await runSafePdfDownload(area, getSafePdfOptions(`Admit_Card_Roll_${stu.rollNumber || stu.masterId}.pdf`, 1122), true);
+    };
+
+    // (C) Signed Admission / Confirmation Form PDF (Fixed for Student & Admin!)
+    generateSignedAdmissionPDF = async function(appId, download = true) {
+      const schCands = (allScholarshipData && allScholarshipData.candidates) ? allScholarshipData.candidates : {};
+      const app = (loggedInStudent && (loggedInStudent.masterId === appId || loggedInStudent.appId === appId))
+        ? loggedInStudent
+        : (allAdmissions[appId] || allStudents[appId] || schCands[appId] || Object.values(allAdmissions).find(s => s.masterId === appId));
+      if (!app) return showCustomAlert("Student form record not found!", "Not Found", "DANGER");
+
+      const area = document.getElementById("pdfPrintArea");
+      const formTitle = app.appType === "SCHOLARSHIP" ? "OFFICIAL SCHOLARSHIP REGISTRATION FORM" : "OFFICIAL ADMISSION CONFIRMATION FORM";
+
+      area.innerHTML = `
+        <div style="border:3px solid #1e3a8a;padding:22px;background:#ffffff;font-family:Arial,sans-serif;box-sizing:border-box;">
+          <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:3px double #1e3a8a;padding-bottom:12px;">
+            <img src="${SCHOOL_INFO.logo}" crossorigin="anonymous" style="width:78px;height:78px;object-fit:contain;" />
+            <div style="text-align:center;flex:1;padding:0 10px;">
+              <h1 style="margin:0;font-size:21px;color:#1e3a8a;font-weight:900;">${SCHOOL_INFO.name}</h1>
+              <p style="margin:3px 0;font-size:11.5px;font-weight:bold;">${SCHOOL_INFO.subTitle}</p>
+              <p style="margin:2px 0;font-size:11px;font-weight:bold;">Helpline: ${SCHOOL_INFO.helpline}</p>
+              <span style="display:inline-block;margin-top:5px;background:#1e3a8a;color:#fff;padding:3px 14px;border-radius:12px;font-size:11px;font-weight:bold;">${formTitle} (${app.session || CURRENT_SESSION.sessionString})</span>
+            </div>
+            <img src="${app.photoBase64}" style="width:86px;height:106px;object-fit:cover;border:2px solid #000;" />
+          </div>
+          <p style="font-size:12.5px;font-weight:bold;margin:12px 0;">Application ID: ${escapeHtml(app.appId || app.masterId)} | Official ID: ${escapeHtml(app.masterId || 'APPROVED')} | Date: ${escapeHtml(app.approvedDate || new Date().toLocaleDateString('en-IN'))}</p>
+          <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;width:32%;">Student Full Name</td><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">${escapeHtml(app.studentName)}</td></tr>
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">Class</td><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">${escapeHtml(app.currentClass || app.classApplying)}</td></tr>
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">Date of Birth & Gender</td><td style="border:1px solid #94a3b8;padding:8px;">${escapeHtml(app.dob)} / ${escapeHtml(app.gender)} (${escapeHtml(app.category)})</td></tr>
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">Father's & Mother's Name</td><td style="border:1px solid #94a3b8;padding:8px;">${escapeHtml(app.fatherName)} / ${escapeHtml(app.motherName)}</td></tr>
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">Mobile Number & Email</td><td style="border:1px solid #94a3b8;padding:8px;">${escapeHtml(app.mobile)} | ${escapeHtml(app.email)}</td></tr>
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">School Bus / Prev. School</td><td style="border:1px solid #94a3b8;padding:8px;">Bus: ${escapeHtml(app.transport || 'No')} | ${escapeHtml(app.prevSchool || 'N/A')}</td></tr>
+            <tr><td style="border:1px solid #94a3b8;padding:8px;font-weight:bold;">Permanent Address</td><td style="border:1px solid #94a3b8;padding:8px;">${escapeHtml(app.address)}</td></tr>
+          </table>
+          <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:65px;">
+            <div style="text-align:center;">
+              <img src="${app.signBase64}" style="width:120px;height:44px;object-fit:contain;border-bottom:1px solid #000;" />
+              <p style="font-size:11px;font-weight:bold;margin:4px 0 0 0;">Student / Parent Sign</p>
+            </div>
+            <div style="border:2px solid #15803d;color:#15803d;padding:6px 14px;border-radius:8px;font-weight:900;font-size:12px;">OFFICIALLY VERIFIED & APPROVED</div>
+            <div style="text-align:center;">
+              <div style="font-family:cursive;font-size:21px;color:#1e3a8a;font-weight:bold;border-bottom:1px solid #000;padding:0 16px;">R. C. Royal</div>
+              <p style="font-size:11px;font-weight:bold;margin:4px 0 0 0;">Authorized Signatory</p>
+            </div>
+          </div>
+        </div>
+      `;
+      return await runSafePdfDownload(area, getSafePdfOptions(`Official_Form_${app.masterId || app.appId}.pdf`, 1122), download);
+    };
+
+    // (D) Fee Receipt & Installments Slip PDF (Fixed for Student & Admin!)
+    generateStudentFeeReceiptPDF = async function(masterIdOverride = null) {
+      const stu = masterIdOverride ? allStudents[masterIdOverride] : loggedInStudent;
+      if (!stu) return;
+      const f = getStudentFeeSummary(stu);
+      const lastInst = f.installments.length > 0 ? f.installments[f.installments.length - 1] : null;
+      const receiptNo = lastInst ? lastInst.receiptNo : `RCP-${CURRENT_SESSION.yearPrefix}-${stu.masterId.slice(-4)}`;
+      const receiptDate = lastInst ? lastInst.date : (stu.lastFeePaymentDate || new Date().toLocaleDateString("en-IN"));
+      const lastPaidAmt = lastInst ? lastInst.amount : f.paid;
+
+      const area = document.getElementById("pdfPrintArea");
+      const qr = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(`GSSS-FEE|${receiptNo}|${stu.masterId}|PrevDue:${f.prevDue}|Paid:${f.paid}|TotalDue:${f.totalDue}`)}`;
+
+      area.innerHTML = `
+        <div style="border:3px solid #1e3a8a;padding:20px;background:#ffffff;font-family:Arial,sans-serif;box-sizing:border-box;">
+          <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:3px double #1e3a8a;padding-bottom:10px;">
+            <img src="${SCHOOL_INFO.logo}" crossorigin="anonymous" style="width:68px;height:68px;object-fit:contain;" />
+            <div style="text-align:center;flex:1;padding:0 10px;">
+              <h1 style="margin:0;font-size:20px;color:#1e3a8a;font-weight:900;">${SCHOOL_INFO.name}</h1>
+              <p style="margin:3px 0;font-size:11px;font-weight:bold;">${SCHOOL_INFO.subTitle}</p>
+              <p style="margin:2px 0;font-size:10.5px;font-weight:bold;">Helpline: ${SCHOOL_INFO.helpline}</p>
+              <span style="display:inline-block;margin-top:4px;background:#15803d;color:#fff;padding:3px 14px;border-radius:12px;font-size:11px;font-weight:bold;">
+                OFFICIAL FEE RECEIPT & INSTALLMENT SLIP (${CURRENT_SESSION.sessionString})
+              </span>
+            </div>
+            <img src="${qr}" crossorigin="anonymous" style="width:68px;height:68px;" />
+          </div>
+
+          ${f.prevDue > 0 ? `<div style="margin:10px 0;padding:8px 12px;background:#fef2f2;border:2px solid #dc2626;border-radius:8px;color:#991b1b;font-size:12px;font-weight:900;text-align:center;">⚠️ PREVIOUS SESSION ARREARS / BAKI FEES INCLUDED: ₹${f.prevDue}</div>` : ""}
+
+          <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:bold;margin:10px 0;background:#f8fafc;padding:7px 10px;border:1px solid #cbd5e1;border-radius:6px;">
+            <div>Receipt No: <span style="color:#1e3a8a;">${escapeHtml(receiptNo)}</span></div>
+            <div>Master ID: <span style="color:#1d4ed8;">${escapeHtml(stu.masterId)}</span></div>
+            <div>Date: <span>${escapeHtml(receiptDate)}</span></div>
+          </div>
+
+          <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px;">
+            <tr>
+              <td style="border:1px solid #94a3b8;padding:7px;font-weight:bold;width:22%;">Student Name</td>
+              <td style="border:1px solid #94a3b8;padding:7px;font-weight:bold;width:28%;">${escapeHtml(stu.studentName)}</td>
+              <td style="border:1px solid #94a3b8;padding:7px;font-weight:bold;width:22%;">Class & Roll No</td>
+              <td style="border:1px solid #94a3b8;padding:7px;font-weight:bold;width:28%;">${escapeHtml(stu.currentClass)} (Roll: ${escapeHtml(stu.rollNumber || 'N/A')})</td>
+            </tr>
+            <tr>
+              <td style="border:1px solid #94a3b8;padding:7px;font-weight:bold;">Father's Name</td>
+              <td style="border:1px solid #94a3b8;padding:7px;">${escapeHtml(stu.fatherName)}</td>
+              <td style="border:1px solid #94a3b8;padding:7px;font-weight:bold;">Current Installment Paid</td>
+              <td style="border:1px solid #94a3b8;padding:7px;font-weight:900;color:#15803d;">₹${lastPaidAmt}</td>
+            </tr>
+          </table>
+
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center;margin-bottom:12px;font-size:11.5px;">
+            <div style="border:1.5px solid #d97706;background:#fffbeb;padding:8px;border-radius:8px;"><div style="color:#92400e;font-weight:bold;">Previous Year Due</div><div style="font-size:15px;font-weight:900;color:#b45309;">₹${f.prevDue}</div></div>
+            <div style="border:1.5px solid #475569;background:#f8fafc;padding:8px;border-radius:8px;"><div style="color:#334155;font-weight:bold;">Current Session Fee</div><div style="font-size:15px;font-weight:900;color:#0f172a;">₹${f.currentTotal}</div></div>
+            <div style="border:1.5px solid #16a34a;background:#f0fdf4;padding:8px;border-radius:8px;"><div style="color:#166534;font-weight:bold;">Total Deposited</div><div style="font-size:15px;font-weight:900;color:#15803d;">₹${f.paid}</div></div>
+            <div style="border:1.5px solid #dc2626;background:#fef2f2;padding:8px;border-radius:8px;"><div style="color:#991b1b;font-weight:bold;">Net Balance Due</div><div style="font-size:15px;font-weight:900;color:#dc2626;">₹${f.totalDue}</div></div>
+          </div>
+
+          <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:18px;">
+            <thead style="background:#0f172a;color:#ffffff;">
+              <tr><th style="border:1px solid #475569;padding:5px;">Inst. No</th><th style="border:1px solid #475569;padding:5px;text-align:left;">Receipt No</th><th style="border:1px solid #475569;padding:5px;text-align:left;">Date</th><th style="border:1px solid #475569;padding:5px;text-align:left;">Session</th><th style="border:1px solid #475569;padding:5px;text-align:right;">Amount (₹)</th></tr>
+            </thead>
+            <tbody>
+              ${f.installments.length > 0 ? f.installments.map((inst, i) => `<tr><td style="border:1px solid #94a3b8;padding:5px;text-align:center;font-weight:bold;">#${i + 1}</td><td style="border:1px solid #94a3b8;padding:5px;font-weight:bold;">${escapeHtml(inst.receiptNo)}</td><td style="border:1px solid #94a3b8;padding:5px;">${escapeHtml(inst.date)}</td><td style="border:1px solid #94a3b8;padding:5px;">${escapeHtml(inst.session || CURRENT_SESSION.sessionString)}</td><td style="border:1px solid #94a3b8;padding:5px;text-align:right;font-weight:bold;color:#15803d;">₹${inst.amount}</td></tr>`).join("") : `<tr><td colspan="5" style="border:1px solid #94a3b8;padding:6px;text-align:center;">No installment paid in current session yet.</td></tr>`}
+            </tbody>
+          </table>
+
+          <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:24px;">
+            <div style="font-size:10.5px;color:#334155;font-weight:bold;">● Total Payable: ₹${f.netPayable} | Paid: ₹${f.paid} | Pending Due: ₹${f.totalDue}</div>
+            <div style="text-align:center;">
+              <div style="font-family:cursive;font-size:19px;color:#1e3a8a;font-weight:bold;border-bottom:1px solid #000;padding:0 16px;">R. C. Royal</div>
+              <p style="font-size:10.5px;font-weight:bold;margin:3px 0 0 0;">Authorized Signatory</p>
+            </div>
+          </div>
+        </div>
+      `;
+      await runSafePdfDownload(area, getSafePdfOptions(`Fee_Receipt_${stu.masterId}.pdf`, 880), true);
+    };
+
+    // (E) Half-Yearly Exam Marksheet PDF (Fixed for Student & Admin!)
+    generateStudentHalfYearlyResultPDF = async function(masterIdOverride = null) {
+      syncTermMarksFromStudentRecords();
+      const stu = masterIdOverride ? allStudents[masterIdOverride] : loggedInStudent;
+      if (!stu || stu.isScholarshipOnly) {
+        return showCustomAlert("Half-Yearly Marksheet is only available for enrolled school students.", "Locked", "DANGER");
+      }
+      const cls = stu.currentClass;
+      const subs = getSubjectsForClass(cls);
+      const hyRec = (allTermMarks["HALF_YEARLY"] && allTermMarks["HALF_YEARLY"][cls] && allTermMarks["HALF_YEARLY"][cls][stu.masterId]) || null;
+
+      if (!hyRec || !hyRec.subjectMarks) {
+        triggerPhoneVibrationAndSound();
+        return showCustomAlert(`Half-Yearly Exam marks have not been uploaded yet for ${stu.studentName} (${cls}).`, "Result Pending", "DANGER");
+      }
+
+      const maxPerSub = Number(hyRec.maxPerSub || 100);
+      let totalObt = 0;
+      const rows = subs.map(sub => {
+        const raw = hyRec.subjectMarks[sub];
+        const num = (raw === "AB" || raw === undefined) ? 0 : (Number(raw) || 0);
+        totalObt += num;
+        const pct = maxPerSub > 0 ? ((num / maxPerSub) * 100).toFixed(1) : "0.0";
+        return {
+          sub,
+          display: raw === "AB" ? "AB" : (raw !== undefined ? num : "-"),
+          maxPerSub,
+          pct,
+          pass: num >= (maxPerSub * 0.33) && raw !== "AB"
+        };
+      });
+
+      const totalMax = maxPerSub * subs.length;
+      const overallPct = totalMax > 0 ? ((totalObt / totalMax) * 100).toFixed(2) : "0.00";
+      const area = document.getElementById("pdfPrintArea");
+      const qr = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(`GSSS-HY|${stu.masterId}|Roll:${stu.rollNumber || 'N/A'}|Marks:${totalObt}/${totalMax}|PCT:${overallPct}%`)}`;
+
+      area.innerHTML = `
+        <div style="border:3px double #7e22ce;padding:20px;background:#ffffff;font-family:Arial,sans-serif;box-sizing:border-box;">
+          <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #7e22ce;padding-bottom:10px;">
+            <img src="${SCHOOL_INFO.logo}" crossorigin="anonymous" style="width:74px;height:74px;object-fit:contain;" />
+            <div style="text-align:center;flex:1;padding:0 8px;">
+              <h1 style="margin:0;font-size:20px;color:#1e3a8a;font-weight:900;">${SCHOOL_INFO.name}</h1>
+              <p style="margin:3px 0;font-size:11px;font-weight:bold;">${SCHOOL_INFO.subTitle}</p>
+              <p style="margin:2px 0;font-size:10.5px;font-weight:bold;">Helpline: ${SCHOOL_INFO.helpline}</p>
+              <span style="display:inline-block;margin-top:5px;background:#7e22ce;color:#fff;padding:3px 14px;border-radius:12px;font-size:11px;font-weight:bold;">
+                HALF-YEARLY EXAMINATION OFFICIAL MARKSHEET (${CURRENT_SESSION.sessionString})
+              </span>
+            </div>
+            <img src="${stu.photoBase64}" style="width:80px;height:98px;object-fit:cover;border:2px solid #000;" />
+          </div>
+
+          <table style="width:100%;border-collapse:collapse;font-size:12px;margin:12px 0;">
+            <tr>
+              <td style="border:1px solid #94a3b8;padding:6px;font-weight:bold;width:22%;">Student Name</td>
+              <td style="border:1px solid #94a3b8;padding:6px;font-weight:bold;width:28%;">${escapeHtml(stu.studentName)}</td>
+              <td style="border:1px solid #94a3b8;padding:6px;font-weight:bold;width:22%;">Roll Number</td>
+              <td style="border:1px solid #94a3b8;padding:6px;font-weight:900;color:#7e22ce;width:28%;">${escapeHtml(stu.rollNumber || '1101')}</td>
+            </tr>
+            <tr>
+              <td style="border:1px solid #94a3b8;padding:6px;font-weight:bold;">Father's Name</td>
+              <td style="border:1px solid #94a3b8;padding:6px;">${escapeHtml(stu.fatherName)}</td>
+              <td style="border:1px solid #94a3b8;padding:6px;font-weight:bold;">Class & Master ID</td>
+              <td style="border:1px solid #94a3b8;padding:6px;font-weight:bold;">${escapeHtml(stu.currentClass)} (${escapeHtml(stu.masterId)})</td>
+            </tr>
+          </table>
+
+          <table style="width:100%;border-collapse:collapse;font-size:12px;text-align:center;">
+            <thead style="background:#0f172a;color:#fff;">
+              <tr><th style="border:1px solid #475569;padding:7px;text-align:left;">Subject Name</th><th style="border:1px solid #475569;padding:7px;">Max Marks</th><th style="border:1px solid #475569;padding:7px;">Obtained</th><th style="border:1px solid #475569;padding:7px;">Subject %</th><th style="border:1px solid #475569;padding:7px;">Remarks</th></tr>
+            </thead>
+            <tbody>
+              ${rows.map(r => `<tr><td style="border:1px solid #94a3b8;padding:7px;text-align:left;font-weight:bold;">${escapeHtml(r.sub)}</td><td style="border:1px solid #94a3b8;padding:7px;">${r.maxPerSub}</td><td style="border:1px solid #94a3b8;padding:7px;font-weight:900;color:#1e3a8a;">${r.display}</td><td style="border:1px solid #94a3b8;padding:7px;">${r.pct}%</td><td style="border:1px solid #94a3b8;padding:7px;font-weight:bold;color:${r.pass ? '#15803d' : '#dc2626'};">${r.pass ? 'PASS' : 'NEEDS IMP.'}</td></tr>`).join("")}
+            </tbody>
+          </table>
+
+          <div style="display:flex;justify-content:space-between;background:#faf5ff;border:2px solid #7e22ce;padding:10px 14px;border-radius:10px;margin-top:14px;font-size:12.5px;font-weight:bold;">
+            <div>Half-Yearly Total: ${totalObt} / ${totalMax}</div>
+            <div>Percentage: ${overallPct}%</div>
+            <div>Status: ${Number(overallPct) >= 33 ? 'QUALIFIED' : 'NEEDS IMPROVEMENT'}</div>
+          </div>
+
+          <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:42px;">
+            <img src="${qr}" crossorigin="anonymous" style="width:68px;height:68px;" />
+            <div style="border:2px solid #7e22ce;color:#7e22ce;padding:5px 14px;border-radius:8px;font-weight:900;font-size:11.5px;">HALF-YEARLY VERIFIED STATEMENT</div>
+            <div style="text-align:center;">
+              <div style="font-family:cursive;font-size:20px;color:#1e3a8a;font-weight:bold;border-bottom:1px solid #000;padding:0 16px;">R. C. Royal</div>
+              <p style="font-size:10.5px;font-weight:bold;margin:4px 0 0 0;">Authorized Signatory</p>
+            </div>
+          </div>
+        </div>
+      `;
+      await runSafePdfDownload(area, getSafePdfOptions(`Half_Yearly_Result_${stu.rollNumber || stu.masterId}.pdf`, 980), true);
+    };
+
+    // (F) Annual / Yearly Progress Report Card PDF (Fixed for Student & Admin!)
+    generateStudentAnnualReportPDF = async function(masterIdOverride = null) {
+      syncTermMarksFromStudentRecords();
+      const stu = masterIdOverride ? allStudents[masterIdOverride] : loggedInStudent;
+      if (!stu || stu.isScholarshipOnly) {
+        return showCustomAlert("Annual Report Card is only available for regular enrolled school students.", "Locked", "DANGER");
+      }
+      if (!masterIdOverride && getStudentEffectiveFeeLockMode(stu) !== "OPEN") {
+        triggerPhoneVibrationAndSound();
+        return showCustomAlert("🔒 Report Card PDF Locked due to pending fee due! Please check Fee Portal.", "Fee Due Lock", "DANGER");
+      }
+      const rep = calculateStudentAnnualReportData(stu);
+
+      if (!rep.isBothComplete) {
+        triggerPhoneVibrationAndSound();
+        return showCustomAlert(
+          `🔒 Annual Report Card Locked!\n\nComplete marks for BOTH Half-Yearly Exam AND Yearly (Annual) Exam must be uploaded for ${stu.studentName} (${stu.currentClass}) before the Annual Report Card PDF can be downloaded.`,
+          "Incomplete Exam Data",
+          "DANGER"
+        );
+      }
+
+      const area = document.getElementById("pdfPrintArea");
+      const qr = `https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=${encodeURIComponent(`GSSS-REPORT|${stu.masterId}|Roll:${stu.rollNumber || 'N/A'}|PCT:${rep.overallPct}%|${rep.resultStatus}`)}`;
+
+      area.innerHTML = `
+        <div style="border:3px double #1e3a8a;padding:20px;background:#ffffff;font-family:Arial,sans-serif;box-sizing:border-box;">
+          <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #1e3a8a;padding-bottom:10px;">
+            <img src="${SCHOOL_INFO.logo}" crossorigin="anonymous" style="width:74px;height:74px;object-fit:contain;" />
+            <div style="text-align:center;flex:1;padding:0 8px;">
+              <h1 style="margin:0;font-size:20px;color:#1e3a8a;font-weight:900;">${SCHOOL_INFO.name}</h1>
+              <p style="margin:3px 0;font-size:11px;font-weight:bold;">${SCHOOL_INFO.subTitle}</p>
+              <p style="margin:2px 0;font-size:10.5px;font-weight:bold;">Helpline: ${SCHOOL_INFO.helpline}</p>
+              <span style="display:inline-block;margin-top:5px;background:#1e3a8a;color:#fff;padding:3px 14px;border-radius:12px;font-size:11px;font-weight:bold;">
+                OFFICIAL ANNUAL PROGRESS REPORT CARD (${CURRENT_SESSION.sessionString})
+              </span>
+            </div>
+            <img src="${stu.photoBase64}" style="width:80px;height:98px;object-fit:cover;border:2px solid #000;" />
+          </div>
+
+          <table style="width:100%;border-collapse:collapse;font-size:12px;margin:12px 0;">
+            <tr>
+              <td style="border:1px solid #94a3b8;padding:6px;font-weight:bold;width:22%;">Student Name</td>
+              <td style="border:1px solid #94a3b8;padding:6px;font-weight:bold;width:28%;">${escapeHtml(stu.studentName)}</td>
+              <td style="border:1px solid #94a3b8;padding:6px;font-weight:bold;width:22%;">Roll Number</td>
+              <td style="border:1px solid #94a3b8;padding:6px;font-weight:900;color:#7e22ce;width:28%;">${escapeHtml(stu.rollNumber || '1101')}</td>
+            </tr>
+            <tr>
+              <td style="border:1px solid #94a3b8;padding:6px;font-weight:bold;">Father's Name</td>
+              <td style="border:1px solid #94a3b8;padding:6px;">${escapeHtml(stu.fatherName)}</td>
+              <td style="border:1px solid #94a3b8;padding:6px;font-weight:bold;">Class & DOB</td>
+              <td style="border:1px solid #94a3b8;padding:6px;font-weight:bold;">${escapeHtml(stu.currentClass)} (${escapeHtml(stu.dob)})</td>
+            </tr>
+          </table>
+
+          <table style="width:100%;border-collapse:collapse;font-size:12px;text-align:center;">
+            <thead style="background:#0f172a;color:#fff;">
+              <tr><th style="border:1px solid #475569;padding:7px;text-align:left;">Subject</th><th style="border:1px solid #475569;padding:7px;">Half-Yearly</th><th style="border:1px solid #475569;padding:7px;">Annual Exam</th><th style="border:1px solid #475569;padding:7px;">Combined Total</th><th style="border:1px solid #475569;padding:7px;">Subject Status</th></tr>
+            </thead>
+            <tbody>
+              ${rep.subjectRows.map(r => `<tr><td style="border:1px solid #94a3b8;padding:7px;text-align:left;font-weight:bold;">${escapeHtml(r.label)}</td><td style="border:1px solid #94a3b8;padding:7px;">${r.hyDisplay} / ${r.hyMax}</td><td style="border:1px solid #94a3b8;padding:7px;">${r.yrDisplay} / ${r.yrMax}</td><td style="border:1px solid #94a3b8;padding:7px;font-weight:bold;">${r.combinedObt} / ${r.combinedMax} (${r.subPct}%)</td><td style="border:1px solid #94a3b8;padding:7px;font-weight:bold;color:${r.isSubPass ? '#15803d' : '#dc2626'};">${r.isSubPass ? 'PASS' : 'NEEDS IMP.'}</td></tr>`).join("")}
+              <tr style="background:#eff6ff;font-weight:bold;">
+                <td style="border:1px solid #94a3b8;padding:7px;text-align:left;">Daily Tests (${rep.dtCount})</td>
+                <td style="border:1px solid #94a3b8;padding:7px;" colspan="2">Continuous Evaluation</td>
+                <td style="border:1px solid #94a3b8;padding:7px;">${rep.dtObtained} / ${rep.dtMax}</td>
+                <td style="border:1px solid #94a3b8;padding:7px;color:#1d4ed8;">INCLUDED</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div style="display:flex;justify-content:space-between;background:#f0fdf4;border:2px solid #16a34a;padding:10px 14px;border-radius:10px;margin-top:14px;font-size:12.5px;font-weight:bold;">
+            <div>Grand Total: ${rep.grandObt} / ${rep.grandMax}</div>
+            <div>Percentage: ${rep.overallPct}%</div>
+            <div>Grade: ${rep.grade}</div>
+            <div style="color:${rep.resultStatus === 'PASSED' ? '#15803d' : '#dc2626'};">Result: ${rep.resultStatus}</div>
+          </div>
+
+          <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:42px;">
+            <img src="${qr}" crossorigin="anonymous" style="width:68px;height:68px;" />
+            <div style="border:2px solid #1e3a8a;color:#1e3a8a;padding:5px 14px;border-radius:8px;font-weight:900;font-size:11.5px;">OFFICIAL VERIFIED MARKSHEET</div>
+            <div style="text-align:center;">
+              <div style="font-family:cursive;font-size:20px;color:#1e3a8a;font-weight:bold;border-bottom:1px solid #000;padding:0 16px;">R. C. Royal</div>
+              <p style="font-size:10.5px;font-weight:bold;margin:4px 0 0 0;">Authorized Signatory</p>
+            </div>
+          </div>
+        </div>
+      `;
+      await runSafePdfDownload(area, getSafePdfOptions(`Annual_Report_${stu.rollNumber || stu.masterId}.pdf`, 1122), true);
+    };
+
+    // (G) Daily Test Scorecard PDF
     async function generateStudentDailyTestPDF(masterIdOverride = null) {
       const stu = masterIdOverride ? allStudents[masterIdOverride] : loggedInStudent;
       if (!stu) return;
@@ -6653,13 +7510,72 @@ Capital of Rajasthan is? | Jodhpur | Udaipur | Jaipur | Ajmer | C</textarea>
           </div>
         </div>
       `;
-      await runSafePdfDownload(area, getSafePdfOptions(`Daily_Test_Report_${stu.masterId}.pdf`, 980));
+      await runSafePdfDownload(area, getSafePdfOptions(`Daily_Test_Report_${stu.masterId}.pdf`, 980), true);
     }
 
-    const _origOpenModV2 = openStudentModuleModal;
+    // (H) Bulk Class Admit Cards PDF (2 or 3 Per Page)
+    generateBulkClassAdmitCardsPDF = async function(cardsPerPage = 2) {
+      const cls = document.getElementById("ac_class").value;
+      const list = Object.values(allStudents)
+        .filter(s => s.status !== "LEFT" && s.currentClass === cls)
+        .sort((a, b) => (a.studentName || "").localeCompare(b.studentName || ""));
+      if (!list.length) return showCustomAlert(`No enrolled students found in ${cls}.`, "Empty Class", "DANGER");
+
+      const cfg = allAdmitConfigs[cls] || {
+        examTitle: document.getElementById("ac_examTitle").value.trim() || "School Examination",
+        shiftTime: document.getElementById("ac_shiftTime").value.trim() || "09:00 AM to 12:15 PM",
+        timetableText: document.getElementById("ac_timetableText").value.trim()
+      };
+      const area = document.getElementById("pdfPrintArea");
+      let pagesHtml = "";
+      for (let i = 0; i < list.length; i += cardsPerPage) {
+        const chunk = list.slice(i, i + cardsPerPage);
+        const isLastPage = (i + cardsPerPage) >= list.length;
+        pagesHtml += `<div class="${isLastPage ? '' : 'pdf-page-break'}" style="min-height:1060px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:flex-start;">${chunk.map(stu => buildSingleAdmitCardSlotHTML(stu, cfg, cardsPerPage)).join("")}</div>`;
+      }
+      area.innerHTML = pagesHtml;
+      await runSafePdfDownload(area, getSafePdfOptions(`Bulk_Admit_Cards_${cls.replace(/\s+/g, '_')}_${cardsPerPage}PerPage.pdf`, 1122), true);
+    };
+
+    // (I) Bulk Scholarship Merit List PDF
+    generateScholarshipMeritListBulkPDF = async function() {
+      const cands = Object.values(allScholarshipData.candidates || {}).filter(c => c && c.studentName);
+      if (!cands.length) return showCustomAlert("No scholarship candidates available.", "No Candidates", "DANGER");
+      const getScore = c => c.offline100Marks !== undefined ? (Number(c.offline100Marks) || 0) : (c.phase1Score ? (Number(String(c.phase1Score).split("/")[0]) || 0) : 0);
+      const sorted = [...cands].sort((a, b) => getScore(b) - getScore(a) || (a.studentName || "").localeCompare(b.studentName || ""));
+      const rowsPerPage = 28;
+      const area = document.getElementById("pdfPrintArea");
+      let pagesHtml = "";
+      for (let i = 0; i < sorted.length; i += rowsPerPage) {
+        const chunk = sorted.slice(i, i + rowsPerPage);
+        const isLast = (i + rowsPerPage) >= sorted.length;
+        const pageNo = Math.floor(i / rowsPerPage) + 1;
+        const totalPages = Math.ceil(sorted.length / rowsPerPage);
+        pagesHtml += `
+          <div class="${isLast ? '' : 'pdf-page-break'}" style="border:2px solid #1e3a8a;padding:16px;min-height:1060px;background:#ffffff;font-family:Arial,sans-serif;box-sizing:border-box;">
+            <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid #1e3a8a;padding-bottom:8px;margin-bottom:10px;">
+              <img src="${SCHOOL_INFO.logo}" crossorigin="anonymous" style="width:55px;height:55px;object-fit:contain;" />
+              <div style="text-align:center;flex:1;">
+                <h2 style="margin:0;font-size:18px;color:#1e3a8a;font-weight:900;">${SCHOOL_INFO.name}</h2>
+                <p style="margin:2px 0;font-size:10px;font-weight:bold;">${SCHOOL_INFO.subTitle} | Helpline: ${SCHOOL_INFO.helpline}</p>
+                <span style="display:inline-block;margin-top:3px;background:#0e7490;color:#fff;padding:2px 12px;border-radius:10px;font-size:10px;font-weight:bold;">SCHOLARSHIP MERIT LIST (MAX MARKS: 100) — PAGE ${pageNo} OF ${totalPages}</span>
+              </div>
+            </div>
+            <table style="width:100%;border-collapse:collapse;font-size:11px;">
+              <thead style="background:#0f172a;color:#ffffff;"><tr><th style="border:1px solid #475569;padding:5px;">Rank</th><th style="border:1px solid #475569;padding:5px;text-align:left;">ID</th><th style="border:1px solid #475569;padding:5px;text-align:left;">Student Name</th><th style="border:1px solid #475569;padding:5px;text-align:left;">Father's Name</th><th style="border:1px solid #475569;padding:5px;text-align:left;">Class</th><th style="border:1px solid #475569;padding:5px;">Marks</th></tr></thead>
+              <tbody>${chunk.map((c, idx) => { const rank = i + idx + 1; const sc = getScore(c); return `<tr><td style="border:1px solid #94a3b8;padding:4.5px;text-align:center;font-weight:900;">#${rank}</td><td style="border:1px solid #94a3b8;padding:4.5px;font-weight:bold;">${escapeHtml(c.masterId)}</td><td style="border:1px solid #94a3b8;padding:4.5px;font-weight:bold;">${escapeHtml(c.studentName)}</td><td style="border:1px solid #94a3b8;padding:4.5px;">${escapeHtml(c.fatherName)}</td><td style="border:1px solid #94a3b8;padding:4.5px;">${escapeHtml(c.currentClass)}</td><td style="border:1px solid #94a3b8;padding:4.5px;text-align:center;font-weight:900;color:#15803d;">${sc} / 100 (${sc}%)</td></tr>`; }).join("")}</tbody>
+            </table>
+          </div>
+        `;
+      }
+      area.innerHTML = pagesHtml;
+      await runSafePdfDownload(area, getSafePdfOptions(`Scholarship_Merit_List_${CURRENT_SESSION.sessionString}.pdf`, 1122), true);
+    };
+
+    const _origOpenModV4 = openStudentModuleModal;
     openStudentModuleModal = async function(modId) {
       syncTermMarksFromStudentRecords();
-      await _origOpenModV2(modId);
+      await _origOpenModV4(modId);
       if (modId === "DAILY_TEST" && loggedInStudent) {
         const bodyEl = document.getElementById("stuModModalBody");
         if (bodyEl && !document.getElementById("btnDownloadDailyTestPdf")) {
