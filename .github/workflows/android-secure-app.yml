@@ -357,7 +357,8 @@ jobs:
                       boolean isAdmin = prefs.getBoolean("isAdmin", false);
                       boolean isFirstSync = !prefs.getBoolean("initialSyncDone", false);
 
-                      URL url = new URL("https://gsss-dhankoli-erp-default-rtdb.firebaseio.com/notifications.json?t=" + System.currentTimeMillis());
+                      URL url = new URL("https://gsss-dhankoli-erp-default-rtdb.firebaseio.com/notifications.json?orderBy=%22$key%22&limitToLast=1&t=" + System.currentTimeMillis());
+                      
                       conn = (HttpURLConnection) url.openConnection();
                       conn.setRequestMethod("GET");
                       conn.setUseCaches(false);
