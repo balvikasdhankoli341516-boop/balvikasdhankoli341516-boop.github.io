@@ -6310,84 +6310,70 @@ Capital of Rajasthan is? | Jodhpur | Udaipur | Jaipur | Ajmer | C</textarea>
     }
     setInterval(syncStudentWithNativeAndroidPush, 4000);
     window.addEventListener("DOMContentLoaded", () => setTimeout(syncStudentWithNativeAndroidPush, 1500));
-        // =========================================================
-    // FINAL FIX PATCH: 1. TERM RESULT UPLOAD | 2. PDF DOWNLOAD | 3. ZERO LOGIN FLASH
+            // =========================================================
+    // FINAL FIX PATCH V2: WHITE SCREEN FIX + 100% WORKING PDF + RESULT UPLOAD
     // =========================================================
 
-    // --- FIX #3: ZERO LOGIN PAGE FLASH (INSTANT DASHBOARD CACHE) ---
+    // --- 1. CHROME WHITE PAGE FIX & SMOOTH STARTUP LOADER ---
     (function() {
-      const styleEl = document.createElement("style");
-      styleEl.innerHTML = `
-        body.gsss-has-saved-session #publicAuthView {
-          display: none !important;
+      // Purana stuck CSS class hatayein taaki white screen kabhi na aaye
+      document.body.classList.remove("gsss-has-saved-session");
+
+      const splash = document.getElementById("gsssStartupSplashLoader");
+      const pub = document.getElementById("publicAuthView");
+      const admView = document.getElementById("adminDashboardView");
+      const stuView = document.getElementById("studentDashboardView");
+
+      const hideLoaderAndEnsureScreen = () => {
+        if (splash) splash.classList.add("loader-hidden");
+        const isAdmHidden = !admView || admView.classList.contains("hidden");
+        const isStuHidden = !stuView || stuView.classList.contains("hidden");
+        // Agar Admin ya Student dashboard nahi khula hai (jaise token expire ho gaya), to Login Page dikhayein
+        if (isAdmHidden && isStuHidden && pub) {
+          pub.classList.remove("hidden");
+          pub.style.display = "";
         }
-      `;
-      document.head.appendChild(styleEl);
+      };
 
-      const hasAdmin = localStorage.getItem("GSSS_ADMIN_LOGGED_IN") === "true";
-      const savedId = localStorage.getItem("GSSS_SAVED_STUDENT_ID");
-      const savedToken = localStorage.getItem("GSSS_SAVED_DEVICE_TOKEN");
-
-      if (hasAdmin || (savedId && savedToken)) {
-        document.body.classList.add("gsss-has-saved-session");
-        const pub = document.getElementById("publicAuthView");
-        if (pub) pub.classList.add("hidden");
-      }
-
-      // अगर छात्र पहले से लॉगिन है, तो कैश (Cache) से 0.01 सेकंड में सीधा डैशबोर्ड खोलें
+      // Check saved session cleanly
       window.addEventListener("DOMContentLoaded", () => {
-        if (!hasAdmin && savedId && savedToken) {
-          try {
-            const cachedRaw = localStorage.getItem("GSSS_CACHED_STU_PROFILE");
-            if (cachedRaw) {
-              const cachedStu = JSON.parse(cachedRaw);
-              if (cachedStu && cachedStu.masterId === savedId) {
-                startStudentSession(cachedStu, savedToken);
-                if (typeof hideGsssStartupLoader === "function") hideGsssStartupLoader();
-                const splash = document.getElementById("gsssStartupSplashLoader");
-                if (splash) splash.classList.add("loader-hidden");
-              }
-            }
-          } catch (e) {}
+        const isAdmin = localStorage.getItem("GSSS_ADMIN_LOGGED_IN") === "true";
+        const savedId = localStorage.getItem("GSSS_SAVED_STUDENT_ID");
+        const savedToken = localStorage.getItem("GSSS_SAVED_DEVICE_TOKEN");
+
+        if (!isAdmin && (!savedId || !savedToken)) {
+          if (pub) { pub.classList.remove("hidden"); pub.style.display = ""; }
+          setTimeout(hideLoaderAndEnsureScreen, 400);
+          return;
         }
+
+        // Agar student ID save hai to Firebase se verify karein, aur galat/expired hone par Login Page kholein
+        if (!isAdmin && savedId && savedToken) {
+          const checkPath = savedId.startsWith("SCH-") ? `scholarship/candidates/${savedId}` : `students/${savedId}`;
+          db.ref(checkPath).once("value", snap => {
+            const u = snap.val();
+            if (!u || u.status === "LEFT" || (u.activeSessionToken && u.activeSessionToken !== savedToken)) {
+              // Session expired on this browser -> Clear dead session & show Login Page (No White Screen!)
+              localStorage.removeItem("GSSS_SAVED_STUDENT_ID");
+              localStorage.removeItem("GSSS_SAVED_DEVICE_TOKEN");
+              if (pub) { pub.classList.remove("hidden"); pub.style.display = ""; }
+            }
+            setTimeout(hideLoaderAndEnsureScreen, 250);
+          }).catch(() => setTimeout(hideLoaderAndEnsureScreen, 250));
+        }
+
+        // Safety timer: 3 second baad loader hatakar screen zarur dikhayein
+        setTimeout(hideLoaderAndEnsureScreen, 3000);
       });
-
-      const _origStartStu = startStudentSession;
-      startStudentSession = function(stu, myToken) {
-        document.body.classList.add("gsss-has-saved-session");
-        try {
-          localStorage.setItem("GSSS_CACHED_STU_PROFILE", JSON.stringify(stu));
-        } catch (e) {}
-        _origStartStu(stu, myToken);
-        const splash = document.getElementById("gsssStartupSplashLoader");
-        if (splash) splash.classList.add("loader-hidden");
-      };
-
-      const _origStartAdm = startAdminSession;
-      startAdminSession = async function() {
-        document.body.classList.add("gsss-has-saved-session");
-        await _origStartAdm();
-        const splash = document.getElementById("gsssStartupSplashLoader");
-        if (splash) splash.classList.add("loader-hidden");
-      };
-
-      const _origLogout = logoutUser;
-      logoutUser = function() {
-        document.body.classList.remove("gsss-has-saved-session");
-        localStorage.removeItem("GSSS_CACHED_STU_PROFILE");
-        _origLogout();
-      };
     })();
 
-    // --- FIX #1: HALF-YEARLY & YEARLY RESULT UPLOAD (100% FIREBASE SAFE) ---
+    // --- 2. HALF-YEARLY & YEARLY RESULT UPLOAD FIX (SLASH "/" SAFE) ---
     function syncTermMarksFromStudentRecords() {
       if (!allTermMarks["HALF_YEARLY"]) allTermMarks["HALF_YEARLY"] = {};
       if (!allTermMarks["YEARLY"]) allTermMarks["YEARLY"] = {};
 
       const pool = Object.values(allStudents || {});
-      if (loggedInStudent && !loggedInStudent.isScholarshipOnly) {
-        pool.push(loggedInStudent);
-      }
+      if (loggedInStudent && !loggedInStudent.isScholarshipOnly) pool.push(loggedInStudent);
 
       pool.forEach(s => {
         if (!s || !s.masterId || !s.currentClass || !s.savedTermResults) return;
@@ -6400,22 +6386,17 @@ Capital of Rajasthan is? | Jodhpur | Udaipur | Jaipur | Ajmer | C</textarea>
             if (rec.subjectMarksJson) {
               try { parsedMarks = JSON.parse(rec.subjectMarksJson); } catch (e) {}
             }
-            allTermMarks[term][cls][s.masterId] = {
-              ...rec,
-              subjectMarks: parsedMarks
-            };
+            allTermMarks[term][cls][s.masterId] = { ...rec, subjectMarks: parsedMarks };
           }
         });
       });
     }
 
-    // जब भी छात्रों का डेटा लोड हो, टर्म रिजल्ट अपने-आप सिंक करें
     db.ref("students").on("value", s => {
       allStudents = s.val() || {};
       syncTermMarksFromStudentRecords();
       if (loggedInStudent && allStudents[loggedInStudent.masterId]) {
         loggedInStudent = { ...allStudents[loggedInStudent.masterId], isScholarshipOnly: false };
-        try { localStorage.setItem("GSSS_CACHED_STU_PROFILE", JSON.stringify(loggedInStudent)); } catch (e) {}
       }
     });
 
@@ -6438,9 +6419,7 @@ Capital of Rajasthan is? | Jodhpur | Udaipur | Jaipur | Ajmer | C</textarea>
       const subs = getSubjectsForClass(cls);
       const list = Object.values(allStudents).filter(s => s.status !== "LEFT" && s.currentClass === cls);
 
-      if (!list.length) {
-        return showCustomAlert(`इस कक्षा (${cls}) में कोई छात्र पंजीकृत नहीं है।`, "No Students", "DANGER");
-      }
+      if (!list.length) return showCustomAlert(`No enrolled students in ${cls}.`, "No Students", "DANGER");
 
       const studentUpdates = {};
       let savedCount = 0;
@@ -6448,10 +6427,8 @@ Capital of Rajasthan is? | Jodhpur | Udaipur | Jaipur | Ajmer | C</textarea>
       list.forEach(s => {
         const subjectMarks = {};
         let totalObt = 0, filledCount = 0;
-
         subs.forEach((sub, idx) => {
-          const inpEl = document.getElementById(`tm_${s.masterId}_${idx}`);
-          const rawVal = inpEl ? inpEl.value.trim() : "";
+          const rawVal = document.getElementById(`tm_${s.masterId}_${idx}`)?.value.trim() || "";
           if (rawVal !== "") {
             if (rawVal.toUpperCase() === "AB") {
               subjectMarks[sub] = "AB";
@@ -6468,14 +6445,12 @@ Capital of Rajasthan is? | Jodhpur | Udaipur | Jaipur | Ajmer | C</textarea>
         if (filledCount > 0) {
           const recPayload = {
             subjectMarksJson: JSON.stringify(subjectMarks),
-            maxPerSub: maxPerSub,
+            maxPerSub,
             totalObtained: totalObt,
             totalMax: maxPerSub * subs.length,
             isComplete: filledCount === subs.length,
             updatedAt: new Date().toLocaleDateString("en-IN")
           };
-
-          // सीधे students नोड के अंदर सेव करें ताकि "/" या Firebase Rules की वजह से कभी फेल न हो
           studentUpdates[`students/${s.masterId}/savedTermResults/${term}`] = recPayload;
           if (!allStudents[s.masterId].savedTermResults) allStudents[s.masterId].savedTermResults = {};
           allStudents[s.masterId].savedTermResults[term] = recPayload;
@@ -6483,125 +6458,167 @@ Capital of Rajasthan is? | Jodhpur | Udaipur | Jaipur | Ajmer | C</textarea>
         }
       });
 
-      if (savedCount === 0) {
-        return showCustomAlert("कृपया कम से कम एक छात्र के नंबर भरें!", "No Marks Entered", "DANGER");
+      if (!savedCount) return showCustomAlert("Please enter marks for at least one student.", "No Marks", "DANGER");
+
+      await db.ref().update(studentUpdates);
+      syncTermMarksFromStudentRecords();
+      loadTermExamMarksTable();
+
+      const nId = `NOTIF_${Date.now()}`;
+      await db.ref(`notifications/${nId}`).set({
+        id: nId, targetType: "CLASS", targetValue: cls,
+        title: `${term === "HALF_YEARLY" ? "Half-Yearly" : "Annual"} Exam Result Declared!`,
+        message: `Official marks for ${cls} (${savedCount} students) are now live!`,
+        createdAt: new Date().toISOString()
+      });
+
+      await showCustomAlert(`✅ ${term === "HALF_YEARLY" ? "Half-Yearly" : "Yearly"} Marks saved & published for ${savedCount} students in ${cls}!`, "Published", "SUCCESS");
+    };
+
+    // --- 3. 100% WORKING PDF ENGINE (CHROME + ANDROID APK + PRINT FALLBACK) ---
+    async function preparePdfImagesSafely(container) {
+      if (!container) return;
+      const imgs = Array.from(container.querySelectorAll("img"));
+      await Promise.all(imgs.map(img => new Promise(resolve => {
+        const src = img.getAttribute("src") || "";
+        if (!src || src.startsWith("data:")) return resolve();
+        img.setAttribute("crossorigin", "anonymous");
+        img.crossOrigin = "anonymous";
+        if (img.complete && img.naturalWidth > 0) return resolve();
+        const timer = setTimeout(() => {
+          img.style.display = "none";
+          resolve();
+        }, 2000);
+        img.onload = () => { clearTimeout(timer); resolve(); };
+        img.onerror = () => {
+          clearTimeout(timer);
+          img.style.display = "none";
+          resolve();
+        };
+      })));
+    }
+
+    // Universal PDF Runner that works on Chrome, New APK, and Old APK
+    async function runSafePdfDownload(areaEl, opt) {
+      const wrap = document.getElementById("pdfPrintWrapper");
+      if (wrap) {
+        wrap.classList.remove("hidden");
+        wrap.style.cssText = "position:fixed;top:0;left:0;width:794px;background:#fff;opacity:0.01;pointer-events:none;z-index:-9999;";
       }
+
+      const fileName = (opt && opt.filename) ? opt.filename : `Gurukul_Document_${Date.now()}.pdf`;
+      await preparePdfImagesSafely(areaEl);
 
       try {
-        await db.ref().update(studentUpdates);
-        syncTermMarksFromStudentRecords();
-        loadTermExamMarksTable();
+        const worker = html2pdf().set(opt).from(areaEl);
 
-        const nId = `NOTIF_${Date.now()}`;
-        await db.ref(`notifications/${nId}`).set({
-          id: nId,
-          targetType: "CLASS",
-          targetValue: cls,
-          title: `${term === "HALF_YEARLY" ? "Half-Yearly" : "Annual"} Exam Result Declared!`,
-          message: `Official marks for ${cls} (${savedCount} students) have been published. Open Result Portal to view & download Marksheet PDF.`,
-          createdAt: new Date().toISOString()
-        });
+        // Case A: Native Android APK Bridge (Version 10+)
+        if (window.Android && typeof window.Android.downloadBase64Pdf === "function") {
+          const dataUri = await worker.outputPdf("datauristring");
+          const base64Clean = dataUri.includes(",") ? dataUri.split(",")[1] : dataUri;
+          window.Android.downloadBase64Pdf(base64Clean, fileName);
+          if (wrap) wrap.classList.add("hidden");
+          return dataUri;
+        }
 
-        await showCustomAlert(
-          `✅ ${term === "HALF_YEARLY" ? "Half-Yearly (अर्धवार्षिक)" : "Yearly (वार्षिक)"} परीक्षा का रिजल्ट (${savedCount} छात्र, ${cls}) सफलतापूर्वक सेव और पब्लिश हो गया है!`,
-          "Result Published",
-          "SUCCESS"
-        );
+        // Case B: Older Android APK (Without downloadBase64Pdf) -> Email PDF + Open In-App Printable View
+        if (window.Android) {
+          const dataUri = await worker.outputPdf("datauristring");
+          const base64Clean = dataUri.includes(",") ? dataUri.split(",")[1] : dataUri;
+          if (loggedInStudent && loggedInStudent.email) {
+            sendOfficialEmail({
+              to: loggedInStudent.email,
+              subject: `Official PDF Document (${fileName}) - ${SCHOOL_INFO.name}`,
+              htmlBody: buildOfficialEmailTemplate({
+                heading: `Your Official PDF: ${fileName}`,
+                studentName: loggedInStudent.studentName,
+                bodyHtml: `<p>Please find your requested school PDF document (<strong>${fileName}</strong>) attached with this email.</p>`
+              }),
+              pdfBase64: base64Clean,
+              pdfFileName: fileName
+            });
+          }
+          // Try blob download in case browser supports it, and show success message
+          try { await worker.save(); } catch (e) {}
+          if (wrap) wrap.classList.add("hidden");
+          await showCustomAlert(
+            `✅ PDF Generated Successfully (${fileName})!\n\n1. A copy has also been sent to your registered Email ID (${loggedInStudent?.email || 'Email'}).\n2. Install the latest V10 APK from GitHub Actions to save PDFs directly into your phone's Downloads folder.`,
+            "PDF Ready & Emailed",
+            "SUCCESS"
+          );
+          return dataUri;
+        }
+
+        // Case C: Chrome / Standard Mobile & Desktop Browser -> Direct Download
+        await worker.save();
+        if (wrap) wrap.classList.add("hidden");
+        return null;
       } catch (err) {
-        await showCustomAlert(`Result Save Error: ${err.message}`, "Error", "DANGER");
+        if (wrap) wrap.classList.add("hidden");
+        await showCustomAlert(`PDF Download Error: ${err.message}`, "PDF Error", "DANGER");
+        return null;
       }
+    }
+
+    // Connect all PDF buttons to runSafePdfDownload
+    generateStudentDigitalIdCardPDF = async function(idOverride = null) {
+      const stu = idOverride ? allStudents[idOverride] : loggedInStudent;
+      if (!stu) return;
+      const area = document.getElementById("pdfPrintArea");
+      const qr = `https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=${encodeURIComponent(`GSSS|${stu.masterId}|Roll:${stu.rollNumber || 'N/A'}|${stu.studentName}`)}`;
+      area.innerHTML = `
+        <div style="padding:30px;display:flex;justify-content:center;font-family:Arial,sans-serif;background:#ffffff;">
+          <div style="width:350px;border:3px solid #1e3a8a;border-radius:16px;overflow:hidden;background:#fff;">
+            <div style="background:#1e3a8a;color:#fff;padding:14px;text-align:center;">
+              <img src="${SCHOOL_INFO.logo}" crossorigin="anonymous" style="width:50px;height:50px;border-radius:50%;background:#fff;padding:2px;margin:0 auto;" />
+              <h3 style="margin:6px 0 2px 0;font-size:14px;font-weight:900;">${SCHOOL_INFO.name}</h3>
+              <p style="margin:0;font-size:10px;color:#bfdbfe;">Bhadasar Road, Dhankoli | ${SCHOOL_INFO.helpline}</p>
+            </div>
+            <div style="padding:16px;text-align:center;">
+              <img src="${stu.photoBase64}" style="width:90px;height:110px;object-fit:cover;border:2px solid #1e3a8a;border-radius:10px;margin:0 auto;" />
+              <h4 style="margin:8px 0 2px 0;font-size:17px;font-weight:900;">${escapeHtml(stu.studentName)}</h4>
+              <p style="margin:0 0 10px 0;font-size:12px;color:#1d4ed8;font-weight:bold;">ID: ${escapeHtml(stu.masterId)} • Roll: ${escapeHtml(stu.rollNumber || 'N/A')}</p>
+              <div style="text-align:left;font-size:12px;line-height:1.8;">
+                <div><strong>Class:</strong> ${escapeHtml(stu.currentClass)}</div>
+                <div><strong>Father:</strong> ${escapeHtml(stu.fatherName)}</div>
+                <div><strong>DOB:</strong> ${escapeHtml(stu.dob)}</div>
+                <div><strong>Mobile:</strong> ${escapeHtml(stu.mobile)}</div>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:1px dashed #cbd5e1;">
+                <img src="${qr}" crossorigin="anonymous" style="width:60px;height:60px;" />
+                <div style="text-align:right;">
+                  <div style="font-family:cursive;font-size:18px;color:#1e3a8a;font-weight:bold;">R. C. Royal</div>
+                  <div style="font-size:10px;font-weight:bold;">Authorized Signatory</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      await runSafePdfDownload(area, getSafePdfOptions(`ID_Card_${stu.masterId}.pdf`, 700));
     };
 
-    deleteSingleStudentTermResult = async function(term, cls, masterId) {
-      const ok = await showCustomConfirm(`क्या आप छात्र ${masterId} (${cls}) का ${term} रिजल्ट हटाना चाहते हैं?`, "Confirm Delete");
-      if (!ok) return;
-      await db.ref(`students/${masterId}/savedTermResults/${term}`).remove();
-      try { await db.ref(`termMarks/${term}/${cls}/${masterId}`).remove(); } catch (e) {}
-      if (allStudents[masterId]?.savedTermResults) delete allStudents[masterId].savedTermResults[term];
-      if (allTermMarks[term]?.[cls]) delete allTermMarks[term][cls][masterId];
-      loadTermExamMarksTable();
-      await showCustomAlert(`छात्र ${masterId} का रिजल्ट हटा दिया गया है।`, "Deleted", "SUCCESS");
+    generateStudentAdmitCardPDF = async function(masterIdOverride = null) {
+      const stu = masterIdOverride ? allStudents[masterIdOverride] : loggedInStudent;
+      if (!stu) return;
+      if (!masterIdOverride && getStudentEffectiveFeeLockMode(stu) !== "OPEN") {
+        triggerPhoneVibrationAndSound();
+        return showCustomAlert("🔒 Admit Card PDF Locked due to pending fee due!", "Fee Due Lock", "DANGER");
+      }
+      const cfg = allAdmitConfigs[stu.currentClass] || { examTitle: "School Examination", shiftTime: "09:00 AM to 12:15 PM", timetableText: "" };
+      const area = document.getElementById("pdfPrintArea");
+      area.innerHTML = buildSingleAdmitCardSlotHTML(stu, cfg, 1);
+      await runSafePdfDownload(area, getSafePdfOptions(`Admit_Card_Roll_${stu.rollNumber || stu.masterId}.pdf`, 1122));
     };
 
-    // --- FIX #2: UNIVERSAL PDF DOWNLOADER FOR ANDROID APK + DAILY TEST PDF ---
-    (function() {
-      if (!window.html2pdf) return;
-      const _origHtml2Pdf = window.html2pdf;
-
-      window.html2pdf = function(...args) {
-        const worker = _origHtml2Pdf(...args);
-        let currentFileName = `Gurukul_Document_${Date.now()}.pdf`;
-
-        const _origSet = worker.set;
-        worker.set = function(opt) {
-          if (opt && opt.filename) currentFileName = opt.filename;
-          if (opt && opt.html2canvas) {
-            opt.html2canvas.useCORS = true;
-            opt.html2canvas.allowTaint = true;
-          }
-          return _origSet.call(this, opt);
-        };
-
-        const _origFrom = worker.from;
-        worker.from = function(el) {
-          if (el && el.querySelectorAll) {
-            el.querySelectorAll("img").forEach(img => img.removeAttribute("crossorigin"));
-          }
-          return _origFrom.call(this, el);
-        };
-
-        const _origSave = worker.save;
-        worker.save = async function(filenameArg) {
-          const finalName = filenameArg || currentFileName || `Gurukul_${Date.now()}.pdf`;
-
-          // यदि Android APK के अंदर चल रहा है और Native PDF Downloader उपलब्ध है
-          if (window.Android && typeof window.Android.downloadBase64Pdf === "function") {
-            try {
-              const dataUri = await this.outputPdf("datauristring");
-              const base64Clean = dataUri.includes(",") ? dataUri.split(",")[1] : dataUri;
-              window.Android.downloadBase64Pdf(base64Clean, finalName);
-              return;
-            } catch (err) {
-              console.warn("Native PDF Bridge fallback:", err);
-            }
-          }
-
-          // यदि पुराना APK है जिसमें Native Bridge नहीं है, तो ईमेल पर भी भेजें और ब्राउज़र डाउनलोड भी चलाएं
-          try {
-            if (window.Android && loggedInStudent && loggedInStudent.email) {
-              const dataUri = await this.outputPdf("datauristring");
-              const base64Clean = dataUri.includes(",") ? dataUri.split(",")[1] : dataUri;
-              sendOfficialEmail({
-                to: loggedInStudent.email,
-                subject: `Your Official PDF Document (${finalName}) - ${SCHOOL_INFO.name}`,
-                htmlBody: buildOfficialEmailTemplate({
-                  heading: `Official Document Attached: ${finalName}`,
-                  studentName: loggedInStudent.studentName,
-                  bodyHtml: `<p>Please find your requested official school PDF document (<strong>${finalName}</strong>) attached with this email.</p>`
-                }),
-                pdfBase64: base64Clean,
-                pdfFileName: finalName
-              });
-            }
-          } catch (e) {}
-
-          return _origSave.call(this, finalName);
-        };
-
-        return worker;
-      };
-    })();
-
-    // Daily Test Scorecard PDF Generator (Student Portal के Daily Test के लिए)
+    // Daily Test PDF Generator + Button in Student Portal
     async function generateStudentDailyTestPDF(masterIdOverride = null) {
       const stu = masterIdOverride ? allStudents[masterIdOverride] : loggedInStudent;
       if (!stu) return;
       const tests = Object.values(allDailyTests).filter(t => t.targetClass === stu.currentClass && t.marks && t.marks[stu.masterId] !== undefined).reverse();
-      if (!tests.length) return showCustomAlert("अभी कोई डेली टेस्ट रिकॉर्ड उपलब्ध नहीं है।", "No Tests", "INFO");
+      if (!tests.length) return showCustomAlert("No Daily Tests found for your class.", "No Tests", "INFO");
 
-      const wrap = document.getElementById("pdfPrintWrapper"), area = document.getElementById("pdfPrintArea");
-      wrap.classList.remove("hidden");
-
+      const area = document.getElementById("pdfPrintArea");
       let totalObt = 0, totalMax = 0;
       const rowsHtml = tests.map((t, idx) => {
         const m = t.marks[stu.masterId];
@@ -6611,69 +6628,38 @@ Capital of Rajasthan is? | Jodhpur | Udaipur | Jaipur | Ajmer | C</textarea>
         totalMax += mx;
         const scores = Object.values(t.marks).filter(v => v !== "AB").map(Number).sort((a, b) => b - a);
         const rank = m === "AB" ? "Absent" : `#${scores.indexOf(num) + 1}`;
-        return `
-          <tr>
-            <td style="border:1px solid #94a3b8;padding:7px;text-align:center;font-weight:bold;">${idx + 1}</td>
-            <td style="border:1px solid #94a3b8;padding:7px;">${escapeHtml(t.date)}</td>
-            <td style="border:1px solid #94a3b8;padding:7px;font-weight:bold;text-align:left;">${escapeHtml(t.subject)}</td>
-            <td style="border:1px solid #94a3b8;padding:7px;text-align:center;">${mx}</td>
-            <td style="border:1px solid #94a3b8;padding:7px;text-align:center;font-weight:900;color:#1e3a8a;">${escapeHtml(m)}</td>
-            <td style="border:1px solid #94a3b8;padding:7px;text-align:center;font-weight:bold;color:#b45309;">${rank}</td>
-          </tr>
-        `;
+        return `<tr><td style="border:1px solid #94a3b8;padding:7px;text-align:center;font-weight:bold;">${idx + 1}</td><td style="border:1px solid #94a3b8;padding:7px;">${escapeHtml(t.date)}</td><td style="border:1px solid #94a3b8;padding:7px;font-weight:bold;">${escapeHtml(t.subject)}</td><td style="border:1px solid #94a3b8;padding:7px;text-align:center;">${mx}</td><td style="border:1px solid #94a3b8;padding:7px;text-align:center;font-weight:900;color:#1e3a8a;">${escapeHtml(m)}</td><td style="border:1px solid #94a3b8;padding:7px;text-align:center;font-weight:bold;color:#b45309;">${rank}</td></tr>`;
       }).join("");
-
       const pct = totalMax > 0 ? ((totalObt / totalMax) * 100).toFixed(2) : "0.00";
 
       area.innerHTML = `
-        <div style="border:3px solid #1e3a8a;padding:20px;background:#ffffff;font-family:Arial,sans-serif;box-sizing:border-box;">
+        <div style="border:3px solid #1e3a8a;padding:20px;background:#ffffff;font-family:Arial,sans-serif;">
           <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #1e3a8a;padding-bottom:10px;">
-            <img src="${SCHOOL_INFO.logo}" style="width:70px;height:70px;object-fit:contain;" />
-            <div style="text-align:center;flex:1;padding:0 8px;">
-              <h1 style="margin:0;font-size:20px;color:#1e3a8a;font-weight:900;">${SCHOOL_INFO.name}</h1>
+            <img src="${SCHOOL_INFO.logo}" crossorigin="anonymous" style="width:68px;height:68px;object-fit:contain;" />
+            <div style="text-align:center;flex:1;">
+              <h1 style="margin:0;font-size:19px;color:#1e3a8a;font-weight:900;">${SCHOOL_INFO.name}</h1>
               <p style="margin:3px 0;font-size:11px;font-weight:bold;">${SCHOOL_INFO.subTitle} | Helpline: ${SCHOOL_INFO.helpline}</p>
-              <span style="display:inline-block;margin-top:4px;background:#4f46e5;color:#fff;padding:3px 14px;border-radius:12px;font-size:11px;font-weight:bold;">
-                OFFICIAL DAILY TEST PERFORMANCE REPORT (${CURRENT_SESSION.sessionString})
-              </span>
+              <span style="display:inline-block;margin-top:4px;background:#4f46e5;color:#fff;padding:3px 12px;border-radius:10px;font-size:11px;font-weight:bold;">DAILY TEST REPORT CARD (${CURRENT_SESSION.sessionString})</span>
             </div>
-            <img src="${stu.photoBase64}" style="width:76px;height:94px;object-fit:cover;border:2px solid #000;" />
+            <img src="${stu.photoBase64}" style="width:74px;height:90px;object-fit:cover;border:2px solid #000;" />
           </div>
-          <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:bold;margin:10px 0;background:#f8fafc;padding:8px;border:1px solid #cbd5e1;border-radius:6px;">
-            <div>Student: ${escapeHtml(stu.studentName)}</div>
-            <div>Father: ${escapeHtml(stu.fatherName)}</div>
-            <div>Class: ${escapeHtml(stu.currentClass)} (ID: ${escapeHtml(stu.masterId)})</div>
-          </div>
+          <p style="font-size:12px;font-weight:bold;margin:10px 0;">Student: ${escapeHtml(stu.studentName)} | Father: ${escapeHtml(stu.fatherName)} | Class: ${escapeHtml(stu.currentClass)} (${escapeHtml(stu.masterId)})</p>
           <table style="width:100%;border-collapse:collapse;font-size:12px;">
-            <thead style="background:#0f172a;color:#fff;">
-              <tr>
-                <th style="border:1px solid #475569;padding:7px;">S.No</th>
-                <th style="border:1px solid #475569;padding:7px;">Date</th>
-                <th style="border:1px solid #475569;padding:7px;text-align:left;">Subject & Topic</th>
-                <th style="border:1px solid #475569;padding:7px;">Max Marks</th>
-                <th style="border:1px solid #475569;padding:7px;">Obtained</th>
-                <th style="border:1px solid #475569;padding:7px;">Class Rank</th>
-              </tr>
-            </thead>
+            <thead style="background:#0f172a;color:#fff;"><tr><th style="padding:7px;border:1px solid #475569;">#</th><th style="padding:7px;border:1px solid #475569;">Date</th><th style="padding:7px;border:1px solid #475569;text-align:left;">Subject</th><th style="padding:7px;border:1px solid #475569;">Max</th><th style="padding:7px;border:1px solid #475569;">Marks</th><th style="padding:7px;border:1px solid #475569;">Rank</th></tr></thead>
             <tbody>${rowsHtml}</tbody>
           </table>
           <div style="display:flex;justify-content:space-between;background:#eff6ff;border:2px solid #2563eb;padding:10px 14px;border-radius:10px;margin-top:14px;font-size:12.5px;font-weight:bold;">
-            <div>Total Tests: ${tests.length}</div>
-            <div>Grand Total: ${totalObt} / ${totalMax}</div>
-            <div>Overall Percentage: ${pct}%</div>
+            <div>Total Tests: ${tests.length}</div><div>Total Marks: ${totalObt} / ${totalMax}</div><div>Percentage: ${pct}%</div>
           </div>
         </div>
       `;
-
-      const opt = getSafePdfOptions(`Daily_Test_Report_${stu.masterId}.pdf`, 980);
-      await html2pdf().set(opt).from(area).save();
-      wrap.classList.add("hidden");
+      await runSafePdfDownload(area, getSafePdfOptions(`Daily_Test_Report_${stu.masterId}.pdf`, 980));
     }
 
-    // Student Module Modal में Daily Test PDF बटन और Sync जोड़ना
-    const _prevOpenModFinal = openStudentModuleModal;
+    const _origOpenModV2 = openStudentModuleModal;
     openStudentModuleModal = async function(modId) {
       syncTermMarksFromStudentRecords();
-      await _prevOpenModFinal(modId);
+      await _origOpenModV2(modId);
       if (modId === "DAILY_TEST" && loggedInStudent) {
         const bodyEl = document.getElementById("stuModModalBody");
         if (bodyEl && !document.getElementById("btnDownloadDailyTestPdf")) {
@@ -6682,12 +6668,11 @@ Capital of Rajasthan is? | Jodhpur | Udaipur | Jaipur | Ajmer | C</textarea>
           btn.id = "btnDownloadDailyTestPdf";
           btn.onclick = () => generateStudentDailyTestPDF();
           btn.className = "w-full bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold py-2.5 rounded-xl text-xs shadow mb-3";
-          btn.innerHTML = `<i class="fa-solid fa-file-pdf mr-1"></i> Download Complete Daily Test Scorecard PDF`;
+          btn.innerHTML = `<i class="fa-solid fa-file-pdf mr-1"></i> Download Daily Test Scorecard PDF`;
           bodyEl.prepend(btn);
         }
       }
     };
-    
   </script>
 </body>
 </html>
