@@ -27,7 +27,7 @@ jobs:
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null || true
 
-      - name: Generate Native Android Project with Invisible Background Push (No Permanent Banner)
+      - name: Generate Native Android Project with PDF Downloader & Data-Saving Push
         run: |
           mkdir -p android-app/app/src/main/java/com/gurukul/dhankoli
           mkdir -p android-app/app/src/main/res/values
@@ -38,7 +38,6 @@ jobs:
             cp index.html android-app/app/src/main/assets/index.html
           fi
 
-          # 100% Original School / Diwali Logo Converter
           pip install --quiet pillow requests
           python3 - << 'PYEOF'
           import os, requests
@@ -77,7 +76,6 @@ jobs:
               fallback.save(out_path, format="PNG")
           PYEOF
 
-          # Signing Key
           keytool -genkey -v -keystore android-app/app/gurukul-key.jks -keyalg RSA -keysize 2048 -validity 10000 -alias gurukul -storepass gurukul123 -keypass gurukul123 -dname "CN=Gurukul School Dhankoli, OU=Education, O=GSSS, L=Dhankoli, S=Rajasthan, C=IN"
 
           cat << 'EOF' > android-app/settings.gradle
@@ -107,8 +105,8 @@ jobs:
                   applicationId "com.gurukul.dhankoli"
                   minSdk 23
                   targetSdk 34
-                  versionCode 9
-                  versionName "9.0"
+                  versionCode 10
+                  versionName "10.0"
               }
               aaptOptions {
                   cruncherEnabled false
@@ -149,6 +147,7 @@ jobs:
               <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
               <uses-permission android:name="android.permission.WAKE_LOCK" />
               <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 
               <application
                   android:allowBackup="true"
@@ -168,14 +167,12 @@ jobs:
                       </intent-filter>
                   </activity>
 
-                  <!-- 100% Silent Background Service (No Permanent Notification Bar Icon) -->
                   <service
                       android:name=".GurukulPushService"
                       android:enabled="true"
                       android:exported="false"
                       android:stopWithTask="false" />
 
-                  <!-- Invisible Android System JobService (Runs Even When App is Swiped Away) -->
                   <service
                       android:name=".GurukulJobService"
                       android:permission="android.permission.BIND_JOB_SERVICE"
@@ -196,7 +193,6 @@ jobs:
           </manifest>
           EOF
 
-          # 1. BootReceiver.java (Invisible JobScheduler Trigger on Reboot / App Close)
           cat << 'EOF' > android-app/app/src/main/java/com/gurukul/dhankoli/BootReceiver.java
           package com.gurukul.dhankoli;
 
@@ -207,7 +203,7 @@ jobs:
           public class BootReceiver extends BroadcastReceiver {
               @Override
               public void onReceive(Context context, Intent intent) {
-                  GurukulJobService.scheduleInvisibleSync(context, 1000);
+                  GurukulJobService.scheduleInvisibleSync(context, 5000);
                   try {
                       context.startService(new Intent(context, GurukulPushService.class));
                   } catch (Exception ignored) {}
@@ -215,7 +211,6 @@ jobs:
           }
           EOF
 
-          # 2. GurukulJobService.java (WhatsApp-style Invisible Background Engine - No Permanent Notification!)
           cat << 'EOF' > android-app/app/src/main/java/com/gurukul/dhankoli/GurukulJobService.java
           package com.gurukul.dhankoli;
 
@@ -237,7 +232,7 @@ jobs:
                       JobInfo.Builder builder = new JobInfo.Builder(JOB_ID, cn)
                           .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
                           .setMinimumLatency(delayMs)
-                          .setOverrideDeadline(delayMs + 4000)
+                          .setOverrideDeadline(delayMs + 15000)
                           .setPersisted(true);
                       js.schedule(builder.build());
                   } catch (Exception ignored) {}
@@ -247,13 +242,10 @@ jobs:
               public boolean onStartJob(final JobParameters params) {
                   new Thread(() -> {
                       try {
-                          for (int i = 0; i < 3; i++) {
-                              GurukulPushService.checkFirebaseOnceStatic(getApplicationContext());
-                              Thread.sleep(3500);
-                          }
+                          GurukulPushService.checkFirebaseOnceStatic(getApplicationContext());
                       } catch (Exception ignored) {
                       } finally {
-                          scheduleInvisibleSync(getApplicationContext(), 3000);
+                          scheduleInvisibleSync(getApplicationContext(), 20000);
                           jobFinished(params, false);
                       }
                   }).start();
@@ -262,13 +254,12 @@ jobs:
 
               @Override
               public boolean onStopJob(JobParameters params) {
-                  scheduleInvisibleSync(getApplicationContext(), 2000);
+                  scheduleInvisibleSync(getApplicationContext(), 15000);
                   return true;
               }
           }
           EOF
 
-          # 3. GurukulPushService.java (100% Silent in Background - Only Pops Up When Real Notice Arrives!)
           cat << 'EOF' > android-app/app/src/main/java/com/gurukul/dhankoli/GurukulPushService.java
           package com.gurukul.dhankoli;
 
@@ -303,27 +294,25 @@ jobs:
           import org.json.JSONObject;
 
           public class GurukulPushService extends Service {
-              public static final String POPUP_CHANNEL_ID = "GSSS_WHATSAPP_POPUP_V9";
+              public static final String POPUP_CHANNEL_ID = "GSSS_WHATSAPP_POPUP_V10";
               private ScheduledExecutorService scheduler;
 
               @Override
               public void onCreate() {
                   super.onCreate();
                   createPopupChannel(this);
-                  // Remove any old permanent notification (ID 999) if it existed
                   NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
                   if (nm != null) nm.cancel(999);
 
                   scheduler = Executors.newSingleThreadScheduledExecutor();
-                  scheduler.scheduleWithFixedDelay(() -> checkFirebaseOnceStatic(getApplicationContext()), 1, 4, TimeUnit.SECONDS);
+                  // 20 सेकंड का अंतराल + limitToLast=1 (Firebase का 10GB कोटा कभी खत्म नहीं होगा)
+                  scheduler.scheduleWithFixedDelay(() -> checkFirebaseOnceStatic(getApplicationContext()), 2, 20, TimeUnit.SECONDS);
               }
 
               public static void createPopupChannel(Context ctx) {
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                       NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
                       if (nm == null) return;
-
-                      // Delete old silent channel so it never appears again
                       try { nm.deleteNotificationChannel("GSSS_SILENT_SYNC_V8"); } catch (Exception ignored) {}
 
                       NotificationChannel popCh = new NotificationChannel(
@@ -351,18 +340,17 @@ jobs:
               public static synchronized void checkFirebaseOnceStatic(Context ctx) {
                   HttpURLConnection conn = null;
                   try {
-                      SharedPreferences prefs = ctx.getSharedPreferences("GSSS_PREFS_V9", MODE_PRIVATE);
+                      SharedPreferences prefs = ctx.getSharedPreferences("GSSS_PREFS_V10", MODE_PRIVATE);
                       String myStuId = prefs.getString("studentId", "ALL");
                       String myClass = prefs.getString("className", "ALL");
                       boolean isAdmin = prefs.getBoolean("isAdmin", false);
                       boolean isFirstSync = !prefs.getBoolean("initialSyncDone", false);
 
+                      // limitToLast=1: सिर्फ आखिरी 1 नया नोटिस डाउनलोड करता है (99% डेटा बचत)
                       URL url = new URL("https://gsss-dhankoli-erp-default-rtdb.firebaseio.com/notifications.json?orderBy=%22$key%22&limitToLast=1&t=" + System.currentTimeMillis());
-                      
                       conn = (HttpURLConnection) url.openConnection();
                       conn.setRequestMethod("GET");
                       conn.setUseCaches(false);
-                      conn.setRequestProperty("Cache-Control", "no-cache, no-store, must-revalidate");
                       conn.setConnectTimeout(5500);
                       conn.setReadTimeout(5500);
 
@@ -416,7 +404,7 @@ jobs:
                           }
                       }
 
-                      if (isFirstSync || anyUpdate) {
+                       if (isFirstSync || anyUpdate) {
                           editor.putBoolean("initialSyncDone", true);
                           editor.commit();
                       }
@@ -428,7 +416,7 @@ jobs:
 
               public static void fireNativeHighAlert(Context ctx, String title, String message, String uniqueKey) {
                   try {
-                      SharedPreferences prefs = ctx.getSharedPreferences("GSSS_PREFS_V9", MODE_PRIVATE);
+                      SharedPreferences prefs = ctx.getSharedPreferences("GSSS_PREFS_V10", MODE_PRIVATE);
                       if (uniqueKey != null && !uniqueKey.isEmpty()) {
                           String firedKey = "FIRED_" + uniqueKey;
                           if (prefs.getBoolean(firedKey, false)) return;
@@ -440,7 +428,6 @@ jobs:
 
                       createPopupChannel(ctx);
 
-                       // 1. Wake up screen when notice arrives
                       try {
                           PowerManager pm = (PowerManager) ctx.getSystemService(Context.POWER_SERVICE);
                           if (pm != null) {
@@ -452,7 +439,6 @@ jobs:
                           }
                       } catch (Exception ignored) {}
 
-                      // 2. Direct Hardware Vibration
                       long[] pattern = new long[]{0, 600, 200, 600, 200, 800};
                       try {
                           Vibrator vib = (Vibrator) ctx.getSystemService(Context.VIBRATOR_SERVICE);
@@ -465,14 +451,12 @@ jobs:
                           }
                       } catch (Exception ignored) {}
 
-                      // 3. Direct Notification Sound
                       try {
                           Uri soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
                           Ringtone r = RingtoneManager.getRingtone(ctx, soundUri);
                           if (r != null && !r.isPlaying()) r.play();
                       } catch (Exception ignored) {}
 
-                      // 4. WhatsApp/Instagram Style Top Screen Popup Banner
                       int notifId = (uniqueKey != null) ? Math.abs(uniqueKey.hashCode()) : (int) (System.currentTimeMillis() & 0xfffffff);
                       Intent intent = new Intent(ctx, MainActivity.class);
                       intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
@@ -505,13 +489,13 @@ jobs:
 
               @Override
               public int onStartCommand(Intent intent, int flags, int startId) {
-                  GurukulJobService.scheduleInvisibleSync(getApplicationContext(), 3000);
+                  GurukulJobService.scheduleInvisibleSync(getApplicationContext(), 15000);
                   return START_STICKY;
               }
 
               @Override
               public void onTaskRemoved(Intent rootIntent) {
-                  GurukulJobService.scheduleInvisibleSync(getApplicationContext(), 1500);
+                  GurukulJobService.scheduleInvisibleSync(getApplicationContext(), 10000);
                   super.onTaskRemoved(rootIntent);
               }
 
@@ -522,18 +506,22 @@ jobs:
           }
           EOF
 
-          # 4. MainActivity.java (No Battery Settings Popup! Clean & Automatic Like WhatsApp)
+          # MainActivity.java (With Native Base64 PDF Downloader to Phone's Downloads Folder!)
           cat << 'EOF' > android-app/app/src/main/java/com/gurukul/dhankoli/MainActivity.java
           package com.gurukul.dhankoli;
 
           import android.Manifest;
           import android.annotation.SuppressLint;
+          import android.content.ContentValues;
           import android.content.Intent;
           import android.content.SharedPreferences;
           import android.content.pm.PackageManager;
           import android.net.Uri;
           import android.os.Build;
           import android.os.Bundle;
+          import android.os.Environment;
+          import android.provider.MediaStore;
+          import android.util.Base64;
           import android.view.View;
           import android.view.WindowManager;
           import android.webkit.GeolocationPermissions;
@@ -545,9 +533,13 @@ jobs:
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
+          import android.widget.Toast;
           import androidx.appcompat.app.AppCompatActivity;
           import androidx.core.app.ActivityCompat;
           import androidx.core.content.ContextCompat;
+          import java.io.File;
+          import java.io.FileOutputStream;
+          import java.io.OutputStream;
 
           public class MainActivity extends AppCompatActivity {
               private WebView webView;
@@ -563,14 +555,12 @@ jobs:
                       WindowManager.LayoutParams.FLAG_SECURE
                   );
 
-                  // Start Invisible Background Sync (Zero Permanent Notification & Zero Settings Redirect!)
                   GurukulPushService.createPopupChannel(this);
-                  GurukulJobService.scheduleInvisibleSync(this, 2000);
+                  GurukulJobService.scheduleInvisibleSync(this, 10000);
                   try {
                       startService(new Intent(this, GurukulPushService.class));
                   } catch (Exception ignored) {}
 
-                  // Only standard Notification Permission (Just like WhatsApp/Instagram)
                   if (Build.VERSION.SDK_INT >= 33) {
                       if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                           ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, 202);
@@ -610,7 +600,7 @@ jobs:
 
                       @JavascriptInterface
                       public void syncUserSession(final String studentId, final String className, final boolean isAdmin) {
-                          SharedPreferences prefs = getSharedPreferences("GSSS_PREFS_V9", MODE_PRIVATE);
+                          SharedPreferences prefs = getSharedPreferences("GSSS_PREFS_V10", MODE_PRIVATE);
                           prefs.edit()
                               .putString("studentId", (studentId != null && !studentId.isEmpty()) ? studentId : "ALL")
                               .putString("className", (className != null && !className.isEmpty()) ? className : "ALL")
@@ -627,6 +617,62 @@ jobs:
                                   body != null ? body : "",
                                   idTag
                               );
+                          });
+                      }
+
+                       // Native Android PDF Downloader (Saves ID Card, Result, Test, Admit Card, Fee PDF to Downloads!)
+                      @JavascriptInterface
+                      public void downloadBase64Pdf(final String base64Data, final String fileName) {
+                          runOnUiThread(() -> {
+                              try {
+                                  String cleanName = (fileName != null && !fileName.isEmpty()) ? fileName : ("Gurukul_" + System.currentTimeMillis() + ".pdf");
+                                  if (!cleanName.toLowerCase().endsWith(".pdf")) cleanName += ".pdf";
+                                  byte[] pdfBytes = Base64.decode(base64Data, Base64.DEFAULT);
+                                  Uri savedUri = null;
+
+                                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                      ContentValues values = new ContentValues();
+                                      values.put(MediaStore.Downloads.DISPLAY_NAME, cleanName);
+                                      values.put(MediaStore.Downloads.MIME_TYPE, "application/pdf");
+                                      values.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+                                      savedUri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                                      if (savedUri != null) {
+                                          OutputStream os = getContentResolver().openOutputStream(savedUri);
+                                          if (os != null) {
+                                              os.write(pdfBytes);
+                                              os.flush();
+                                              os.close();
+                                          }
+                                      }
+                                  } else {
+                                      File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                                      if (!dir.exists()) dir.mkdirs();
+                                      File outFile = new File(dir, cleanName);
+                                      FileOutputStream fos = new FileOutputStream(outFile);
+                                      fos.write(pdfBytes);
+                                      fos.flush();
+                                      fos.close();
+                                  }
+
+                                  Toast.makeText(MainActivity.this, "✅ PDF Downloaded in Downloads: " + cleanName, Toast.LENGTH_LONG).show();
+                                  GurukulPushService.fireNativeHighAlert(
+                                      MainActivity.this,
+                                      "📄 PDF Downloaded Successfully!",
+                                      "Saved to your phone's Downloads folder: " + cleanName,
+                                      "PDF_" + System.currentTimeMillis()
+                                  );
+
+                                  if (savedUri != null) {
+                                      Intent openIntent = new Intent(Intent.ACTION_VIEW);
+                                      openIntent.setDataAndType(savedUri, "application/pdf");
+                                      openIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                                      try {
+                                          startActivity(openIntent);
+                                      } catch (Exception ignored) {}
+                                  }
+                              } catch (Exception e) {
+                                  Toast.makeText(MainActivity.this, "PDF Save Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                              }
                           });
                       }
                   }, "Android");
@@ -654,7 +700,7 @@ jobs:
                               "      var isAdm = localStorage.getItem('GSSS_ADMIN_LOGGED_IN') === 'true';" +
                               "      if(window.Android && window.Android.syncUserSession) window.Android.syncUserSession(sId, sCls, isAdm);" +
                               "    } catch(e){}" +
-                              "  }, 2000);" +
+                              "  }, 3000);" +
                               "  window.fireAndroidStatusBarNotification = function(title, body, idTag){" +
                               "    try { if(window.Android && window.Android.triggerPopupNotification) window.Android.triggerPopupNotification(title, body, idTag || ''); } catch(e){}" +
                               "  };" +
